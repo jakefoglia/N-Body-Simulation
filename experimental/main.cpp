@@ -81,44 +81,33 @@ int depth(int x) // N = 4 for quadtree, N = 8 for octree
     return  floor (log( (7) * x + 1) / log(8) );
 }
 
-
-bool is_child_tree_index(uint32_t pti, uint32_t cti)
+/* // dont use this
+Node* sub_region_occupied(Node* parent, bounds& parent_region, float3& pos)
 {
-    return ((cti - 1) / 8 == pti);
-}
+    uint8_t sub_index = get_subregion_index(parent_region, pos);
+    uint32_t sub_tree_index = parent->tree_index * 8 + 1 + sub_index; // + 1 bc sub_index is 0 indexed
+    uint32_t first_child_index = parent->first_child_TAoS_index;
 
-bool has_children(Node*& parent) // is this equivalent to (!is_leaf) ? 
-{
-    uint32_t fci = parent->first_child_TAoS_index;
-
-    if(fci > TAoS_current_size)
+    for(int i = first_child_index; i < first_child_index + 8 && i < TAoS_current_size; i++)
     {
-        printf("SOMETHING IS WRONG!!\n");
-        return false; 
-    }
-
-    Node* child = &TAoS[fci];
-    if(child->tree_index != UINT32_MAX && is_child_tree_index(parent->tree_index, child->tree_index))
-        return true;
-
-    return false; 
-
+        if(TAoS[i].tree_index == sub_tree_index)
+        {
+            return &TAoS[i];
+        }
+    } 
+    return nullptr;
 }
+*/
+
 /*
 bounds get_bounds(uint32_t tree_index)
 {
     
 }
 */
-bool sub_region_occupied(Node*& parent, float3& pos)
-{
-    uint32_t ti = parent->tree_index; 
-    
-    float3 lb;
-    float3 ub;
-}
 
-uint8_t get_subregion_index(bounds& parent_region, float3& pos) // returns 0 through 7, specifying the subregion
+
+uint8_t get_subregion_index(bounds& parent_region, float3& pos) // returns 0 through 7, specifying the subregion. x is 3rd bit, y is 2nd bit, z is 1st bit
 {
     float3 center;
     center.x = (parent_region.x_lb + parent_region.x_ub) / 2.0f;
@@ -176,48 +165,309 @@ bounds get_subregion(bounds& parent_region, uint8_t index)
 }
 bounds get_subregion(bounds& parent_region, float3& pos)
 {
-    uint8_t index = get_subregion_index(parent_region, pos);
-    return get_subregion(parent_region, index);
+    //uint8_t index = get_subregion_index(parent_region, pos);
+    //return get_subregion(parent_region, index);
+
+    float3 center;
+    center.x = (parent_region.x_lb + parent_region.x_ub) / 2.0f;
+    center.y = (parent_region.y_lb + parent_region.y_ub) / 2.0f;
+    center.z = (parent_region.z_lb + parent_region.z_ub) / 2.0f;
+
+    bounds region;
+    if(pos.x >= center.x)
+    {
+        region.x_lb = center.x;
+        region.x_ub = parent_region.x_ub;
+    }
+    else
+    {       
+        region.x_lb = parent_region.x_lb;
+        region.x_ub = center.x;
+    }
+    if(pos.y >= center.y)
+    {
+        region.y_lb = center.y;
+        region.y_ub = parent_region.y_ub;    
+    }
+    else
+    {
+        region.y_lb = parent_region.y_lb;
+        region.y_ub = center.y;
+    }
+    if(pos.z >= center.z)
+    {
+        region.z_lb = center.z;
+        region.z_ub = parent_region.z_ub;
+    }
+    else
+    {
+        region.z_lb = parent_region.z_lb;
+        region.z_ub = center.z;
+    }
+    return region; 
+
+
+}
+
+bool is_child_tree_index(uint32_t pti, uint32_t cti)
+{
+    return ((cti - 1) / 8 == pti);
+}
+
+/* method is broken and useless. Do not use
+bool has_children(Node*& parent) // do blanks count as chilren? 
+{
+    uint32_t fci = parent->first_child_TAoS_index;
+
+    if(fci == UINT32_MAX)
+        return false; 
+
+    if(fci > TAoS_current_size)
+    {
+        printf("SOMETHING IS WRONG!!\n");
+        return false; 
+    }
+
+    Node* child = &TAoS[fci];
+    
+
+
+    // keep this for safety for now
+    if(child->tree_index != UINT32_MAX && !is_child_tree_index(parent->tree_index, child->tree_index))
+    {
+        printf("\nSOMETHING IS WRONG WITH TAoS child indexing!!!\n");
+        printf("fci %i\n", fci);
+        printf("pti %i\n", parent->tree_index);
+        printf("cti %i\n", child->tree_index);
+        
+        printf("is child : %i\n", ((child->tree_index - 1) / 8 == parent->tree_index));
+    }
+
+    if(child->tree_index != UINT32_MAX && is_child_tree_index(parent->tree_index, child->tree_index))
+        return true;
+
+    return false; 
+
+}
+*/
+
+bool is_internal_node(Node* node)
+{
+            // cant be empty node             // cant be particle               // must have children
+    return(node->tree_index != UINT32_MAX && node->PAoS_index == UINT32_MAX && node->first_child_TAoS_index != UINT32_MAX);
+}
+bool is_blank_node(Node* node) // a blank is a leaf node thats not a particle. 
+{
+            // cant be empty node             // cant be particle               // cant have children
+    return (node->tree_index != UINT32_MAX && node->PAoS_index == UINT32_MAX && node->first_child_TAoS_index == UINT32_MAX);
+}
+
+bool is_particle_node(Node* node)
+{       
+            // cant be empty node           // must have index on the PAoS array   // cant have children
+    return (node->tree_index != UINT32_MAX && node->PAoS_index != UINT32_MAX    && node->first_child_TAoS_index == UINT32_MAX);
+}
+bool is_empty_node(Node* node)
+{
+            // all nonempty nodes must have tree index
+    return node->tree_index == UINT32_MAX; 
+}
+
+
+// 3 types of nodes: internal, particle, blank. 
+// root starts as blank: it has no children but its not a particle
+// then after trying to add one particle, we add the particle and 7 other blank node children which will be turned into particles then internal nodes when necessary. 
+
+
+
+void insert_blanks(uint32_t parent_TAoS_index)
+{
+    Node* parent = &TAoS[parent_TAoS_index];
+    parent->first_child_TAoS_index = TAoS_current_size;
+
+    // insert 8 blank children
+    for(int i = 1; i <= 8; i++)
+    {
+        Node* n = &TAoS[TAoS_current_size++];
+
+        n->PAoS_index = UINT32_MAX;
+        n->tree_index = parent->tree_index*8 + i;
+        n->first_child_TAoS_index = UINT32_MAX; // no children yet, these are blanks
+        n->parent_TAoS_index = parent_TAoS_index;
+    }
+    //printf("inserted blanks as child of TAoS[%i]\n", parent_TAoS_index); // debug
+}
+
+
+void insert_particle_on_blank(Node* blank,  uint32_t PAoS_index) //uint32_t parent_TAoS_index,
+{
+    if(!is_blank_node(blank))
+    {
+        printf("error in insert_particle_on_blank : node isn't blank!!!");
+        return;
+    }
+
+    Particle* p =  &PAoS[PAoS_index];
+
+    blank->com = p->pos;
+    blank->total_mass = p->mass;
+    blank->PAoS_index = PAoS_index; 
+    blank->first_child_TAoS_index = UINT32_MAX;
+    //blank->parent_TAoS_index = parent_TAoS_index; // is this necessary? when blanks were inserted this should have been done already
+}
+
+void insert_internal_on_particle(uint32_t TAoS_index, bounds& b)
+{
+    Node bkp = TAoS[TAoS_index]; // create a copy
+    //uint32_t parent_TAoS_index = bkp.parent_TAoS_index;
+
+    insert_blanks(TAoS_index);
+
+    uint8_t sub_index = get_subregion_index(b, bkp.com);
+    uint32_t target_TAoS_index = TAoS[TAoS_index].first_child_TAoS_index + sub_index; 
+
+    insert_particle_on_blank(&TAoS[target_TAoS_index], bkp.PAoS_index); // theres gotta be a better way than this. override the method to just take a Node& particle 
+
 }
 
 
 
-void insert_node(Node*& TAoS, Particle* p)
+
+void insert_particle_in_tree(Node* TAoS, uint32_t PAoS_index) // a node should have 0 children, or 8 children (must be consecutive)
 {
-    bounds b = bounds(-tree_boundary, tree_boundary, -tree_boundary, tree_boundary, - tree_boundary, tree_boundary); // start with entire tree region
-    Node* current_parent = TAoS;
-    while(sub_region_occupied (current_parent, p->pos) )
+    Particle* p = &PAoS[PAoS_index];
+    bounds current_bounds = bounds(-tree_boundary, tree_boundary, -tree_boundary, tree_boundary, -tree_boundary, tree_boundary); // start with entire tree boundary
+    Node* current_node = TAoS;
+    Node* parent_node = TAoS; 
+
+    //uint32_t parent_TAoS_index;
+
+    bool flag = false; 
+    
+    /*
+    // traverse until we find a blank or a particle to split
+    while(!is_blank_node(current_node) && !is_particle_node(current_node) ) // then it should have 8 consecutive children
+    */
+
+    // loop until we find a blank. branch tree if we hit a particle. 
+    while(!is_blank_node(current_node))  // while(is_internal) ? is that equivalent
+    {   
+        // TODO: add COM and total_mass contribution on the way down the tree
+        //current_node->com = ( (current_node->com * current_node->total_mass) + (p->mass * p->pos) ) / (current_node->total_mass + p->mass); 
+
+        // advance the tree
+        if(flag)
+        {
+            parent_node = current_node;    
+        }
+        flag = true;
+
+        uint8_t sub_index = get_subregion_index(current_bounds, p->pos);
+        current_bounds =  get_subregion(current_bounds, sub_index);
+
+        
+        if( (!is_particle_node(current_node) && current_node->first_child_TAoS_index == UINT32_MAX) || current_node->first_child_TAoS_index == 0) // debug
+            printf("uhh ohh in insert_node()\n\n");
+
+
+        if(is_particle_node(current_node))
+        {
+            insert_internal_on_particle(current_node - TAoS, current_bounds); // ?????? probably not right
+        }
+        else // only advance if it was already and internal node. 
+        {
+            // this is why we must insert 8 children at once, or none 
+            current_node = &TAoS[current_node->first_child_TAoS_index + sub_index]; // is this causing overflow ? 
+        }
+
+    }
+
+    uint32_t parent_TAoS_index = (parent_node - TAoS); // is this right?
+    if(is_blank_node(current_node))
     {
         
+        //printf("inserting PAoS[%i] on blank child of tree_index %i\n", PAoS_index, TAoS[parent_TAoS_index].tree_index); // debug
+        insert_particle_on_blank(current_node, PAoS_index);
+        return; 
     }
+
+ 
+
+
+
+/*
+    Node* occupying_node = sub_region_occupied (current_node, current_bounds, p->pos);
+    while(occupying_node != nullptr)
+    {
+        bool isParticle = (occupying_node->PAoS_index != UINT32_MAX); 
+        if(isParticle)
+        {
+            // branch the tree
+            break;
+        }
+        else
+        {
+            // TODO: add COM and total_mass contribution on the way down the tree
+            //current_node->com = ( (current_node->com * current_node->total_mass) + (p->mass * p->pos) ) / (current_node->total_mass + p->mass); 
+
+            // advance
+            current_bounds =  get_subregion(current_bounds, p->pos);
+            current_node = occupying_node;
+
+            
+            
+        }
+    } 
+
+    */
 }
 
 
-void generate_TAoS(Node*& TAoS, Particle*& PAoS)
+void generate_TAoS(Node* TAoS, Particle* PAoS)
 {
+    TAoS_current_size = 0;
+
     // initialize root node
-    Node* root = (Node*) malloc(sizeof(Node));
+    Node* root = TAoS;
     root->tree_index = 0;
     root->PAoS_index = UINT32_MAX; // not a particle
     root->parent_TAoS_index = UINT32_MAX; // no parent
-    root->first_child_TAoS_index = 1;
+    root->first_child_TAoS_index = 1; // we will put 8 blanks there
     root->com = float3{0.0f, 0.0f, 0.0f};
 
-    TAoS[0] = *root;
-    TAoS_current_size = 1;
+    
+    TAoS_current_size++;
 
+    insert_blanks(0);
 
-    // fill rest of array with 'empty nodes' 
-    for(int i = 1; i < TAoS_max_size; i++)
+/*
+    // insert 8 blank children
+    for(int ti = 1; ti <= 8 ; ti++)
     {
         Node* n = (Node*) malloc(sizeof(Node));
-        n->tree_index = n->PAoS_index = UINT32_MAX;
-        TAoS[i] = *n;
+        n->PAoS_index = UINT32_MAX;
+        n->tree_index = ti;
+        n->first_child_TAoS_index = UINT32_MAX; // no children yet, these are blanks
+        n->parent_TAoS_index = 0;
+        TAoS[ti] = *n;
+
+        TAoS_current_size++;
+    }
+*/
+    // fill rest of array with 'empty nodes' 
+    for(int ti = 9; ti < TAoS_max_size; ti++)
+    {
+        Node* n = &TAoS[ti];
+        n->tree_index = UINT32_MAX;
+        n->PAoS_index = UINT32_MAX;
+        n->first_child_TAoS_index = UINT32_MAX;
+        n->parent_TAoS_index = UINT32_MAX;
     }
 
-    for(int i = 0; i < N; i++)
+    for(int pi = 0; pi < N; pi++)
     {
-        insert_node(TAoS, &PAoS[i]);
+        insert_particle_in_tree(TAoS, pi);
+        //printf("inserted p\n\n");
     }
 }
 
@@ -261,7 +511,7 @@ int main ()
         //printf("s_com %f %f %f\n", sys_com.x, sys_com.y, sys_com.z);
 
         PAoS[i] = *p;
-        printf(particleToString(*p).c_str() ,"\n");
+        //printf(particleToString(*p).c_str() ,"\n");
     }
     sys_com = sys_com * (1.0f/sys_mass);
 
@@ -273,6 +523,30 @@ int main ()
     TAoS_max_size = fos * N;
     TAoS = (Node*) malloc (TAoS_max_size * sizeof(Node));
 
+    Node* t0 = TAoS;
+    Node* t1 = &TAoS[1];
+    Node* t2 = &TAoS[2];
+    Node* t3 = &TAoS[3];
+    Node* t4 = &TAoS[4];
+    Node* t5 = &TAoS[5];
+    Node* t6 = &TAoS[6];
+    Node* t7 = &TAoS[7];
+    Node* t8 = &TAoS[8];
+
     generate_TAoS(TAoS, PAoS);
 
+    printf("PAoS size :  %i\n", N);
+    printf("TAoS size :  %i\n", TAoS_current_size);
+    printf("ratio     :  %4.2f\n", ((TAoS_current_size * 1.0f) / N));
+
+
+    /*
+   bounds b1{-1.0f, 1.0f, -1.0f, 1.0f, -1.0f, 1.0f};
+   float3 pos = {-0.5f, 0.5f, 0.5f};
+
+   printf("sub_index : %i\n\n", get_subregion_index(b1, pos));
+
+
+   printf("index: %i ", (&TAoS[26] - TAoS) );
+*/
 }

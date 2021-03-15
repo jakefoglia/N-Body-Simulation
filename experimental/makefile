@@ -18,7 +18,7 @@ main.o: main.cpp
 	mv main.o $(OBJ_DIR)/main.o
 
 
-executable: clean $(OBJS)
+exe: clean $(OBJS)
 	$(CC) -o $(PROJECT_DIR)/a.exe  $(OBJ_DIR)/*.o
  
 clean: 
