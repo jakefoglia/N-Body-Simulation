@@ -11,7 +11,7 @@
 //const uint32_t N = 50;
 //const float G = 6.6743e-11; 
 
-#define N 50
+#define N 1000
 #define G 6.6743e-11
 
 
@@ -57,9 +57,18 @@ typedef struct Node
     float total_mass; 
 } Node;
 
+typedef struct Index_Pair
+{
+    uint32_t index1;
+    uint32_t index2;
+} Index_Pair;
+
+
+
 // global arrays and vars
 Particle* PAoS;
 Node* TAoS;
+Node* TAoS_swap_buffer;
 
 uint32_t TAoS_current_size;
 uint32_t TAoS_max_size;  
@@ -68,13 +77,25 @@ float sys_boundary;
 float tree_boundary; 
 
 
+Index_Pair* sort_array;
+uint32_t* map;
+
+
+bool is_internal_node(Node* node);
+bool is_particle_node(Node* node);
+bool is_internal_node(Node* node);
+bool is_blank_node(Node* node);
 
 std::string particleToString(Particle& p)
 {
     return std::string("mass : ") + std::to_string(p.mass) + "\npos: (" + std::to_string(p.pos.x) + ", " +  std::to_string(p.pos.y) + ", " +  std::to_string(p.pos.z) + ")"
         + "\nvel: (" +std::to_string(p.vel.x) + ", " +  std::to_string(p.vel.y) + ", " +  std::to_string(p.vel.z) + ")\n\n";
 }
-
+std::string nodeToString(Node& n)
+{
+    return std::string("tree index : ") + std::to_string(n.tree_index) + "\ncom: (" + std::to_string(n.com.x) + ", " +  std::to_string(n.com.y) + ", " +  std::to_string(n.com.z) + ")"
+        + "\ntotal mass: " +std::to_string(n.total_mass) + "\n is_particle : " +  std::to_string(is_particle_node(&n)) + "\n\n";
+}
 
 int depth(int x) // N = 4 for quadtree, N = 8 for octree
 {
@@ -294,6 +315,9 @@ void insert_blanks(uint32_t parent_TAoS_index)
         n->tree_index = parent->tree_index*8 + i;
         n->first_child_TAoS_index = UINT32_MAX; // no children yet, these are blanks
         n->parent_TAoS_index = parent_TAoS_index;
+
+        n->com = float3{0, 0, 0};
+        n->total_mass = {0};
     }
     //printf("inserted blanks as child of TAoS[%i]\n", parent_TAoS_index); // debug
 }
@@ -303,7 +327,7 @@ void insert_particle_on_blank(Node* blank,  uint32_t PAoS_index) //uint32_t pare
 {
     if(!is_blank_node(blank))
     {
-        printf("error in insert_particle_on_blank : node isn't blank!!!");
+        printf("error in insert_particle_on_blank : node isn't blank!!!\n");
         return;
     }
 
@@ -471,14 +495,65 @@ void generate_TAoS(Node* TAoS, Particle* PAoS)
     }
 }
 
+// TODO: comapre with std::sort on the TAoS. how will we get the map to update the parent and child indices? 
 
+void sort_TAoS(Node*& TAoS, Node*& TAoS_swap_buffer, Index_Pair* n2o, uint32_t* m, uint32_t n, uint32_t max) 
+{
+    for(uint32_t i = 0; i < n; i++)
+    {
+        n2o[i].index1=TAoS[i].tree_index;
+        n2o[i].index2=i; // TAoS_index_old
+    }
+    
+    // insertion sort
+    Index_Pair key; 
+    uint32_t i, j; 
+    for (i = 1; i < n; i++)
+    { 
+        key = n2o[i]; 
+        j = i - 1; 
+ 
+        while (j >= 0 && n2o[j].index1 > key.index1)
+        { 
+            n2o[j + 1] = n2o[j]; 
+            j = j - 1; 
+        } 
+        n2o[j + 1] = key; 
+    }
+    
+    // fill map based on inverse  (can we do this inside the insertion sort ? )
+    for(uint32_t i = 0; i < n; i++)
+    {
+        m[n2o[i].index2] = i; // map [TAoS_index_old] = TAoS_index_new
+    }
 
+    // root is special case ( has no map for parent_TAoS_index)
+    TAoS_swap_buffer[0] = TAoS[0];
+    TAoS_swap_buffer[0].first_child_TAoS_index = m[TAoS[0].first_child_TAoS_index];
 
+    // remap remaining non-empty nodes
+    for(int i = 1; i < n; i++)
+    {
+        TAoS_swap_buffer[m[i]] = TAoS[i];
+        if(TAoS[i].first_child_TAoS_index < UINT32_MAX)
+            TAoS_swap_buffer[m[i]].first_child_TAoS_index = m[TAoS[i].first_child_TAoS_index]; // if this seg faults, we are trying to map based on an invalid index
 
+        if(TAoS[i].parent_TAoS_index < UINT32_MAX)
+            TAoS_swap_buffer[m[i]].parent_TAoS_index = m[TAoS[i].parent_TAoS_index]; // if this seg faults, we are trying to map based on an invalid index
+    }
+    for(int i = n; i < TAoS_max_size; i++)
+    {
+        TAoS_swap_buffer[i] = TAoS[i];
+    }
+
+    // swap the buffers
+    Node* temp = TAoS;
+    TAoS = TAoS_swap_buffer;
+    TAoS_swap_buffer = temp;
+}
 
 int main ()
 {
-    
     float3 sys_com = float3{0.0f, 0.0f, 0.0f};
     float sys_mass = 0.0f;
     float max_dim = 0.0f;
@@ -522,6 +597,8 @@ int main ()
 
     TAoS_max_size = fos * N;
     TAoS = (Node*) malloc (TAoS_max_size * sizeof(Node));
+    TAoS_swap_buffer = (Node*) malloc (TAoS_max_size * sizeof(Node));
+    
 
     Node* t0 = TAoS;
     Node* t1 = &TAoS[1];
@@ -533,8 +610,22 @@ int main ()
     Node* t7 = &TAoS[7];
     Node* t8 = &TAoS[8];
 
+    sort_array = (Index_Pair*) malloc(TAoS_max_size * sizeof(Index_Pair));
+    map = (uint32_t*) malloc(TAoS_max_size * sizeof(uint32_t));
+
+
     generate_TAoS(TAoS, PAoS);
 
+    sort_TAoS(TAoS, TAoS_swap_buffer, sort_array, map, TAoS_current_size, TAoS_max_size);
+
+    for(int i = 0; i < TAoS_current_size + 1; i++)
+    {
+        printf("ti: %i\n", TAoS[i].tree_index);
+        //printf(nodeToString(TAoS[i]).c_str());
+    }
+
+
+    printf("\n");
     printf("PAoS size :  %i\n", N);
     printf("TAoS size :  %i\n", TAoS_current_size);
     printf("ratio     :  %4.2f\n", ((TAoS_current_size * 1.0f) / N));
@@ -550,3 +641,72 @@ int main ()
    printf("index: %i ", (&TAoS[26] - TAoS) );
 */
 }
+
+/*
+Last Error:
+
+Jake@JakeASUS MINGW64 /d/Git/N-Body-Simulation/experimental (master)
+$ ./a.exe
+PAoS size :  50
+TAoS size :  273
+ratio     :  5.46
+
+Jake@JakeASUS MINGW64 /d/Git/N-Body-Simulation/experimental (master)
+$ ./a.exe
+error in insert_particle_on_blank : node isn't blank!!!
+uhh ohh in insert_node()
+
+Segmentation fault
+
+
+*/
+
+
+
+/*
+
+PLAN FOR SORTING TAoS
+
+Generate a new AoS. Each struct holds this info from a node on the TAoS:
+
+Sorting Struct: 
+{
+    tree_index  (for sorting)
+    TAoS_index 
+}
+
+We radix sort based on tree index. 
+
+This gives us a map 
+    from    TAoS_index_new    (location in sorted array)
+    to      TAoS_index_old    (TAoS_index entry in the struct)
+
+We want the inverse of this map.
+So we create a new array for the inverse map
+
+the location in the array will represent the TAoS_index_old
+the values will hold the TAoS_index_new
+
+So for each entry in the sorted array, we read the TAoS_index (the old index locations)
+and we use this index to go to that location in the new map.
+
+Then at that location, we write the index in the sorted array of where we found it.
+
+This will give us our desried map
+    from    TAoS_index_old    (location in map)
+    to      TAoS_index_new    (value at that location)
+
+
+Using this map we can easily sort our TAoS efficiently.
+Then after sorting, we go to each node and update their:
+    TAoS_parent_index
+ &  TAoS_first_child_index 
+ 
+ based on the map   
+
+*/
+
+/*
+PDF paper format:
+YYYY-where published-title
+*/
