@@ -7,12 +7,15 @@
 #include <iomanip>
 #include <string>
 #include <cmath>
+#include <stack>
 
 //const uint32_t N = 50;
 //const float G = 6.6743e-11; 
 
-#define N 1000
+#define N 50
 #define G 6.6743e-11
+#define dt  0.1f
+#define theta  1.0f
 
 
 
@@ -33,7 +36,7 @@ typedef struct bounds
     bounds(float x_lb, float x_ub, float y_lb, float y_ub, float z_lb, float z_ub) : x_lb(x_lb), x_ub(x_ub), y_lb(y_lb), y_ub(y_ub), z_lb(z_lb), z_ub(z_ub) {}
     float x_lb, x_ub, y_lb, y_ub, z_lb, z_ub;
 
-    inline bounds operator*(float s) const { return bounds(x_lb*s, x_ub*s, y_lb*s, y_ub*s, z_lb*s, z_ub*s); }
+    inline bounds operator*(float s) const { return bounds(x_lb*s, x_ub*s, y_lb*s, y_ub*s, z_lb*s, z_ub*s);  }
 } bounds;
 
 typedef struct Particle
@@ -83,8 +86,9 @@ uint32_t* map;
 
 bool is_internal_node(Node* node);
 bool is_particle_node(Node* node);
-bool is_internal_node(Node* node);
 bool is_blank_node(Node* node);
+bool is_empty_node(Node* node);
+
 
 std::string particleToString(Particle& p)
 {
@@ -93,8 +97,18 @@ std::string particleToString(Particle& p)
 }
 std::string nodeToString(Node& n)
 {
-    return std::string("tree index : ") + std::to_string(n.tree_index) + "\ncom: (" + std::to_string(n.com.x) + ", " +  std::to_string(n.com.y) + ", " +  std::to_string(n.com.z) + ")"
-        + "\ntotal mass: " +std::to_string(n.total_mass) + "\n is_particle : " +  std::to_string(is_particle_node(&n)) + "\n\n";
+    std::string type ="";
+    if(is_empty_node(&n))
+        type+="empty ";
+    if(is_blank_node(&n))
+        type+="blank ";
+    if(is_internal_node(&n))
+        type+="internal ";
+    if(is_particle_node(&n))
+        type+="particle ";    
+
+    return std::string("tree index : ") + std::to_string(n.tree_index) + "  " + type + "\ncom: (" + std::to_string(n.com.x) + ", " +  std::to_string(n.com.y) + ", " +  std::to_string(n.com.z) + ")"
+        + "\ntotal mass: " +std::to_string(n.total_mass) +  "\n\n";
 }
 
 int depth(int x) // N = 4 for quadtree, N = 8 for octree
@@ -316,8 +330,8 @@ void insert_blanks(uint32_t parent_TAoS_index)
         n->first_child_TAoS_index = UINT32_MAX; // no children yet, these are blanks
         n->parent_TAoS_index = parent_TAoS_index;
 
-        n->com = float3{0, 0, 0};
-        n->total_mass = {0};
+        n->com = float3{0.0f, 0.0f, 0.0f};
+        n->total_mass = {0.0f};
     }
     //printf("inserted blanks as child of TAoS[%i]\n", parent_TAoS_index); // debug
 }
@@ -342,13 +356,23 @@ void insert_particle_on_blank(Node* blank,  uint32_t PAoS_index) //uint32_t pare
 
 void insert_internal_on_particle(uint32_t TAoS_index, bounds& b)
 {
-    Node bkp = TAoS[TAoS_index]; // create a copy
+    Node* node = &TAoS[TAoS_index];
+    if(!is_particle_node(node))
+    {
+        printf("error in insert_inernal_on_particle : node isn't particle!!!\n");
+        return;
+    }
+
+    Node bkp = *node; // create a copy
     //uint32_t parent_TAoS_index = bkp.parent_TAoS_index;
 
     insert_blanks(TAoS_index);
+    node->com = bkp.com;
+    node->total_mass = bkp.total_mass;
+    node->PAoS_index = UINT32_MAX;
 
     uint8_t sub_index = get_subregion_index(b, bkp.com);
-    uint32_t target_TAoS_index = TAoS[TAoS_index].first_child_TAoS_index + sub_index; 
+    uint32_t target_TAoS_index = node->first_child_TAoS_index + sub_index; 
 
     insert_particle_on_blank(&TAoS[target_TAoS_index], bkp.PAoS_index); // theres gotta be a better way than this. override the method to just take a Node& particle 
 
@@ -379,6 +403,7 @@ void insert_particle_in_tree(Node* TAoS, uint32_t PAoS_index) // a node should h
         // TODO: add COM and total_mass contribution on the way down the tree
         //current_node->com = ( (current_node->com * current_node->total_mass) + (p->mass * p->pos) ) / (current_node->total_mass + p->mass); 
 
+
         // advance the tree
         if(flag)
         {
@@ -396,17 +421,20 @@ void insert_particle_in_tree(Node* TAoS, uint32_t PAoS_index) // a node should h
 
         if(is_particle_node(current_node))
         {
-            insert_internal_on_particle(current_node - TAoS, current_bounds); // ?????? probably not right
+            insert_internal_on_particle(current_node - TAoS, current_bounds); 
         }
         else // only advance if it was already and internal node. 
         {
-            // this is why we must insert 8 children at once, or none 
-            current_node = &TAoS[current_node->first_child_TAoS_index + sub_index]; // is this causing overflow ? 
-        }
+            // add mass contribution
+            current_node->com = ((current_node->com * current_node->total_mass) + (p->pos * p->mass) ) *  (1.0f / (current_node->total_mass + p->mass));
+            current_node->total_mass += p->mass; 
 
+            // this is why we must insert 8 children at once, or none 
+            current_node = &TAoS[current_node->first_child_TAoS_index + sub_index]; 
+        }
     }
 
-    uint32_t parent_TAoS_index = (parent_node - TAoS); // is this right?
+    uint32_t parent_TAoS_index = (parent_node - TAoS); 
     if(is_blank_node(current_node))
     {
         
@@ -458,6 +486,7 @@ void generate_TAoS(Node* TAoS, Particle* PAoS)
     root->parent_TAoS_index = UINT32_MAX; // no parent
     root->first_child_TAoS_index = 1; // we will put 8 blanks there
     root->com = float3{0.0f, 0.0f, 0.0f};
+    root->total_mass = 0.0f;
 
     
     TAoS_current_size++;
@@ -491,7 +520,6 @@ void generate_TAoS(Node* TAoS, Particle* PAoS)
     for(int pi = 0; pi < N; pi++)
     {
         insert_particle_in_tree(TAoS, pi);
-        //printf("inserted p\n\n");
     }
 }
 
@@ -550,6 +578,80 @@ void sort_TAoS(Node*& TAoS, Node*& TAoS_swap_buffer, Index_Pair* n2o, uint32_t* 
     Node* temp = TAoS;
     TAoS = TAoS_swap_buffer;
     TAoS_swap_buffer = temp;
+}
+float norm(float3 vec)
+{
+    return std::sqrt(vec.x*vec.x + vec.y*vec.y + vec.z*vec.z);
+}
+void dfs_traverse(Node* TAoS, Particle* p)
+{
+    //printf("\n\nAdding force on :\n");
+    //printf(particleToString(*p).c_str());
+    printf("\n--------------------------------------------------------------\n");
+    printf("%i  (%6.4f, %6.4f, %6.4f)\n",p - PAoS, p->pos.x, p->pos.y, p->pos.z);
+
+    float3 accel(0.0f, 0.0f, 0.0f);
+
+    // init stack with root
+    std::stack<std::pair<Node*, float>> stack;
+    stack.push(std::pair<Node*, float>(TAoS, 2.0f*tree_boundary)); 
+
+    // traverse
+    while(!stack.empty())
+    {
+        std::pair<Node*, float> pair = stack.top();
+        stack.pop();
+
+        Node* current = pair.first;
+        float width = pair.second;
+
+
+        float3 r = current->com + p->pos * -1.0f; 
+        float r_norm = norm(r);
+
+        printf("\t%i\tinternal: %i\t r_norm/width %6.2f\t", current->tree_index, is_internal_node(current), r_norm / width );
+
+        if(is_internal_node(current) && (r_norm  / width) < 1.0f ) 
+        {
+            printf("push children");
+            // push valid children to stack
+            Node* child;
+            for(int i = 0; i < 8; i++)
+            {
+                child = &TAoS[current->first_child_TAoS_index + i];
+                if(!is_empty_node(child) && !is_blank_node(child))
+                    stack.push(std::pair<Node*, float> (child, width/2.0f));
+            }
+        }
+        else 
+        {   
+            printf("FORCE ");
+            printf((is_particle_node(current)) ? " (particle)" : " (internal)" );
+            //printf("Force contribution from : \n");
+            //printf(nodeToString(*current).c_str());
+            accel = accel + (r * (G * current->total_mass) * (1.0f/ r_norm*r_norm*r_norm));
+        }
+        printf("\n");
+
+    }
+    printf("\npos: (%6.2f, %6.2f, %6.2f)\n", p->pos.x, p->pos.y, p->pos.z);
+    printf("vel: (%6.2f, %6.2f, %6.2f)\n", p->vel.x, p->vel.y, p->vel.z);
+
+    printf("\naccel: (%6.2f, %6.2f, %6.2f)\n", accel.x, accel.y, accel.z);
+
+    p->vel = p->vel + accel * dt;
+    p->pos = p->pos + p->vel*dt; 
+
+    printf("\npos: (%6.2f, %6.2f, %6.2f)\n", p->pos.x, p->pos.y, p->pos.z);
+    printf("vel: (%6.2f, %6.2f, %6.2f)\n", p->vel.x, p->vel.y, p->vel.z);    
+    
+}
+void calculate_forces(Node* TAoS, Particle* PAoS, uint32_t n)
+{
+    for(int i = 0; i < n; i++)
+    {
+        dfs_traverse(TAoS, &PAoS[i]); // traverse starting at the root node
+    }
 }
 
 int main ()
@@ -618,20 +720,22 @@ int main ()
 
     sort_TAoS(TAoS, TAoS_swap_buffer, sort_array, map, TAoS_current_size, TAoS_max_size);
 
-    for(int i = 0; i < TAoS_current_size + 1; i++)
+    for(int i = 0; i < TAoS_current_size ; i++)
     {
-        printf("ti: %i\n", TAoS[i].tree_index);
+        //printf("ti: %i\n", TAoS[i].tree_index);
         //printf(nodeToString(TAoS[i]).c_str());
     }
 
 
-    printf("\n");
+    
+    calculate_forces(TAoS, PAoS, N);
+
+    printf("\n\n\n");
     printf("PAoS size :  %i\n", N);
     printf("TAoS size :  %i\n", TAoS_current_size);
     printf("ratio     :  %4.2f\n", ((TAoS_current_size * 1.0f) / N));
 
-
-    /*
+/*
    bounds b1{-1.0f, 1.0f, -1.0f, 1.0f, -1.0f, 1.0f};
    float3 pos = {-0.5f, 0.5f, 0.5f};
 
