@@ -12,12 +12,11 @@
 //const uint32_t N = 50;
 //const float G = 6.6743e-11; 
 
-#define N 50
-#define G 6.6743e-11
+#define N 500
+#define G 1.0f
 #define dt  0.1f
 #define theta  1.0f
-
-
+#define epsilon 0.01f
 
 typedef struct float3
 {
@@ -26,6 +25,7 @@ typedef struct float3
 
     float x, y, z;
     inline float3 operator*(float s) const { return float3(x*s, y*s, z*s); }
+    inline float3 operator/(float s) const { return float3(x/s, y/s, z/s); }
     inline float3 operator+(const float3& a) const { return float3(x+a.x, y+a.y, z+a.z); }
 
 } float3;
@@ -116,23 +116,6 @@ int depth(int x) // N = 4 for quadtree, N = 8 for octree
     return  floor (log( (7) * x + 1) / log(8) );
 }
 
-/* // dont use this
-Node* sub_region_occupied(Node* parent, bounds& parent_region, float3& pos)
-{
-    uint8_t sub_index = get_subregion_index(parent_region, pos);
-    uint32_t sub_tree_index = parent->tree_index * 8 + 1 + sub_index; // + 1 bc sub_index is 0 indexed
-    uint32_t first_child_index = parent->first_child_TAoS_index;
-
-    for(int i = first_child_index; i < first_child_index + 8 && i < TAoS_current_size; i++)
-    {
-        if(TAoS[i].tree_index == sub_tree_index)
-        {
-            return &TAoS[i];
-        }
-    } 
-    return nullptr;
-}
-*/
 
 /*
 bounds get_bounds(uint32_t tree_index)
@@ -314,7 +297,6 @@ bool is_empty_node(Node* node)
 // then after trying to add one particle, we add the particle and 7 other blank node children which will be turned into particles then internal nodes when necessary. 
 
 
-
 void insert_blanks(uint32_t parent_TAoS_index)
 {
     Node* parent = &TAoS[parent_TAoS_index];
@@ -442,36 +424,6 @@ void insert_particle_in_tree(Node* TAoS, uint32_t PAoS_index) // a node should h
         insert_particle_on_blank(current_node, PAoS_index);
         return; 
     }
-
- 
-
-
-
-/*
-    Node* occupying_node = sub_region_occupied (current_node, current_bounds, p->pos);
-    while(occupying_node != nullptr)
-    {
-        bool isParticle = (occupying_node->PAoS_index != UINT32_MAX); 
-        if(isParticle)
-        {
-            // branch the tree
-            break;
-        }
-        else
-        {
-            // TODO: add COM and total_mass contribution on the way down the tree
-            //current_node->com = ( (current_node->com * current_node->total_mass) + (p->mass * p->pos) ) / (current_node->total_mass + p->mass); 
-
-            // advance
-            current_bounds =  get_subregion(current_bounds, p->pos);
-            current_node = occupying_node;
-
-            
-            
-        }
-    } 
-
-    */
 }
 
 
@@ -491,22 +443,9 @@ void generate_TAoS(Node* TAoS, Particle* PAoS)
     
     TAoS_current_size++;
 
+    // insert 8 blank children
     insert_blanks(0);
 
-/*
-    // insert 8 blank children
-    for(int ti = 1; ti <= 8 ; ti++)
-    {
-        Node* n = (Node*) malloc(sizeof(Node));
-        n->PAoS_index = UINT32_MAX;
-        n->tree_index = ti;
-        n->first_child_TAoS_index = UINT32_MAX; // no children yet, these are blanks
-        n->parent_TAoS_index = 0;
-        TAoS[ti] = *n;
-
-        TAoS_current_size++;
-    }
-*/
     // fill rest of array with 'empty nodes' 
     for(int ti = 9; ti < TAoS_max_size; ti++)
     {
@@ -585,12 +524,11 @@ float norm(float3 vec)
 }
 void dfs_traverse(Node* TAoS, Particle* p)
 {
-    //printf("\n\nAdding force on :\n");
-    //printf(particleToString(*p).c_str());
-    printf("\n--------------------------------------------------------------\n");
-    printf("%i  (%6.4f, %6.4f, %6.4f)\n",p - PAoS, p->pos.x, p->pos.y, p->pos.z);
+    ///printf("\n--------------------------------------------------------------\n");
+    ///printf("%i  (%6.4f, %6.4f, %6.4f)\n",p - PAoS, p->pos.x, p->pos.y, p->pos.z);
 
     float3 accel(0.0f, 0.0f, 0.0f);
+
 
     // init stack with root
     std::stack<std::pair<Node*, float>> stack;
@@ -609,11 +547,11 @@ void dfs_traverse(Node* TAoS, Particle* p)
         float3 r = current->com + p->pos * -1.0f; 
         float r_norm = norm(r);
 
-        printf("\t%i\tinternal: %i\t r_norm/width %6.2f\t", current->tree_index, is_internal_node(current), r_norm / width );
+        ///printf("\t%i\tinternal: %i\t r_norm/width %6.2f\t total_mass %6.2f\t", current->tree_index, is_internal_node(current), r_norm / width, current->total_mass );
 
         if(is_internal_node(current) && (r_norm  / width) < 1.0f ) 
         {
-            printf("push children");
+            ///printf("push children");
             // push valid children to stack
             Node* child;
             for(int i = 0; i < 8; i++)
@@ -625,25 +563,29 @@ void dfs_traverse(Node* TAoS, Particle* p)
         }
         else 
         {   
-            printf("FORCE ");
-            printf((is_particle_node(current)) ? " (particle)" : " (internal)" );
-            //printf("Force contribution from : \n");
-            //printf(nodeToString(*current).c_str());
-            accel = accel + (r * (G * current->total_mass) * (1.0f/ r_norm*r_norm*r_norm));
+            ///printf("FORCE "); 
+            ///printf((is_particle_node(current)) ? " (particle) " : " (internal) " );
+            
+    
+            float3 a(0.0f, 0.0f, 0.0f);
+            a = ((r / (r_norm + epsilon)) * (float) (G * current->total_mass)) / ((r_norm + epsilon ) * (r_norm + epsilon));
+            accel =  a + accel;
+            
+            ///printf("accel += (%10.8f, %10.8f, %10.8f) = (%10.8f, %10.8f, %10.8f)", a.x, a.y, a.z, accel.x, accel.y, accel.z );
         }
-        printf("\n");
-
+        ///printf("\n");
     }
-    printf("\npos: (%6.2f, %6.2f, %6.2f)\n", p->pos.x, p->pos.y, p->pos.z);
-    printf("vel: (%6.2f, %6.2f, %6.2f)\n", p->vel.x, p->vel.y, p->vel.z);
 
-    printf("\naccel: (%6.2f, %6.2f, %6.2f)\n", accel.x, accel.y, accel.z);
+    ///printf("\npos: (%10.8f, %10.8f, %10.8f)\n", p->pos.x, p->pos.y, p->pos.z);
+    ///printf("vel: (%10.8f, %10.8f, %10.8f)\n", p->vel.x, p->vel.y, p->vel.z);
+
+    ///printf("\naccel: (%10.8f, %10.8f, %10.8f)\n", accel.x, accel.y, accel.z);
 
     p->vel = p->vel + accel * dt;
     p->pos = p->pos + p->vel*dt; 
 
-    printf("\npos: (%6.2f, %6.2f, %6.2f)\n", p->pos.x, p->pos.y, p->pos.z);
-    printf("vel: (%6.2f, %6.2f, %6.2f)\n", p->vel.x, p->vel.y, p->vel.z);    
+    ///printf("\npos: (%10.8f, %10.8f, %10.8f)\n", p->pos.x, p->pos.y, p->pos.z);
+    ///printf("vel: (%10.8f, %10.8f, %10.8f)\n", p->vel.x, p->vel.y, p->vel.z);    
     
 }
 void calculate_forces(Node* TAoS, Particle* PAoS, uint32_t n)
@@ -671,6 +613,13 @@ int main ()
         p->pos=float3( rand() % (range) - range/2.0f, rand() % range - range/2.0f, rand() % range - range/2.0f);
         p->vel=float3(0,0,0);
         p->mass = 1;
+
+        if(i == 0) // manually insert large body
+        {
+            p->pos=float3(10.0f, 10.0f, 10.0f);
+            p->vel = float3(0.0f, 0.0f, 0.0f);
+            p->mass = 10000.0f;
+        }
         
         if(std::abs(p->pos.x) > max_dim)
             max_dim = p->pos.x;
@@ -715,25 +664,26 @@ int main ()
     sort_array = (Index_Pair*) malloc(TAoS_max_size * sizeof(Index_Pair));
     map = (uint32_t*) malloc(TAoS_max_size * sizeof(uint32_t));
 
-
-    generate_TAoS(TAoS, PAoS);
-
-    sort_TAoS(TAoS, TAoS_swap_buffer, sort_array, map, TAoS_current_size, TAoS_max_size);
-
-    for(int i = 0; i < TAoS_current_size ; i++)
+    for(int i = 0; i < 100; i++)
     {
-        //printf("ti: %i\n", TAoS[i].tree_index);
-        //printf(nodeToString(TAoS[i]).c_str());
+        generate_TAoS(TAoS, PAoS);
+        sort_TAoS(TAoS, TAoS_swap_buffer, sort_array, map, TAoS_current_size, TAoS_max_size);
+        calculate_forces(TAoS, PAoS, N);
+        for(int j = 0; j < 5; j++)
+        {
+            printf("(%8.6f, %8.6f, %8.6f)  \t", PAoS[j].pos.x,  PAoS[j].pos.y,  PAoS[j].pos.z);
+        }
+        printf("\n\n");
     }
 
 
-    
-    calculate_forces(TAoS, PAoS, N);
 
     printf("\n\n\n");
     printf("PAoS size :  %i\n", N);
     printf("TAoS size :  %i\n", TAoS_current_size);
     printf("ratio     :  %4.2f\n", ((TAoS_current_size * 1.0f) / N));
+
+    return 1;
 
 /*
    bounds b1{-1.0f, 1.0f, -1.0f, 1.0f, -1.0f, 1.0f};
