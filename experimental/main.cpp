@@ -2,17 +2,18 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <vector> 
-#include <time.h>
 #include <sstream>
 #include <iomanip>
 #include <string>
 #include <cmath>
 #include <stack>
+#include <ctime>
+#include <chrono>
 
 //const uint32_t N = 50;
 //const float G = 6.6743e-11; 
 
-#define N 500
+#define N 1000
 #define G 1.0f
 #define dt  0.1f
 #define theta  1.0f
@@ -649,39 +650,65 @@ int main ()
     TAoS_max_size = fos * N;
     TAoS = (Node*) malloc (TAoS_max_size * sizeof(Node));
     TAoS_swap_buffer = (Node*) malloc (TAoS_max_size * sizeof(Node));
-    
-
-    Node* t0 = TAoS;
-    Node* t1 = &TAoS[1];
-    Node* t2 = &TAoS[2];
-    Node* t3 = &TAoS[3];
-    Node* t4 = &TAoS[4];
-    Node* t5 = &TAoS[5];
-    Node* t6 = &TAoS[6];
-    Node* t7 = &TAoS[7];
-    Node* t8 = &TAoS[8];
 
     sort_array = (Index_Pair*) malloc(TAoS_max_size * sizeof(Index_Pair));
     map = (uint32_t*) malloc(TAoS_max_size * sizeof(uint32_t));
 
-    for(int i = 0; i < 100; i++)
+
+
+    uint64_t update_TAoS_time = 0;
+    uint64_t sort_TAoS_time = 0;
+    uint64_t calculate_forces_time = 0;
+    uint64_t gen_TAoS_time = 0;
+    uint64_t total = 0;
+
+
+    auto t0 =  std::chrono::steady_clock::now();
+    generate_TAoS(TAoS, PAoS);
+    gen_TAoS_time = (std::chrono::steady_clock::now() - t0).count();
+    
+
+    int steps = 100;
+    for(int i = 0; i < steps; i++)
     {
+        auto t1 = std::chrono::steady_clock::now();
         generate_TAoS(TAoS, PAoS);
-        sort_TAoS(TAoS, TAoS_swap_buffer, sort_array, map, TAoS_current_size, TAoS_max_size);
+        //update_TAoS(TAoS, PAoS);
+        auto t2 = std::chrono::steady_clock::now();
+        sort_TAoS(TAoS, TAoS_swap_buffer, sort_array, map, TAoS_current_size, TAoS_max_size); // this is optional for cpu version. It just slows us down unecessarily! 
+        auto t3 = std::chrono::steady_clock::now();
         calculate_forces(TAoS, PAoS, N);
+        auto t4 = std::chrono::steady_clock::now();
+        
+        /*
         for(int j = 0; j < 5; j++)
         {
             printf("(%8.6f, %8.6f, %8.6f)  \t", PAoS[j].pos.x,  PAoS[j].pos.y,  PAoS[j].pos.z);
         }
         printf("\n\n");
+        */
+        update_TAoS_time += static_cast<uint64_t>((t2 - t1).count());
+        sort_TAoS_time += static_cast<uint64_t>((t3 - t2).count());
+        calculate_forces_time += static_cast<uint64_t>((t4 - t3).count());
+        
     }
-
+    update_TAoS_time /= steps;
+    sort_TAoS_time /= steps;
+    calculate_forces_time /= steps;
+    total = update_TAoS_time + sort_TAoS_time + calculate_forces_time;
 
 
     printf("\n\n\n");
     printf("PAoS size :  %i\n", N);
     printf("TAoS size :  %i\n", TAoS_current_size);
     printf("ratio     :  %4.2f\n", ((TAoS_current_size * 1.0f) / N));
+
+    printf("\nAvg Times:\n");
+    printf("generate_TAoS_time : %lf ms\n", gen_TAoS_time/1E6);
+    printf("update_TAoS_time : %lf ms\n", update_TAoS_time/1E6);
+    printf("sort_TAoS_time : %lf ms\n", sort_TAoS_time/1E6);
+    printf("calculate_forces_time : %lf ms\n", calculate_forces_time/1E6);
+    printf("total iteration time : %lf ms\n", total/1E6);
 
     return 1;
 
@@ -712,12 +739,6 @@ uhh ohh in insert_node()
 
 Segmentation fault
 
-
-*/
-
-
-
-/*
 
 PLAN FOR SORTING TAoS
 
