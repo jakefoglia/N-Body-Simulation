@@ -14,12 +14,13 @@
 //const uint32_t N = 50;
 //const float G = 6.6743e-11; 
 
-#define N 200
+#define N 1000
 #define G 1.0f
 #define dt  0.1f
 #define theta  1.0f
 #define epsilon 0.01f
 #define fos 20
+#define boundary_fos 1.25f
 
 typedef struct float3
 {
@@ -81,7 +82,7 @@ typedef struct xthread_arg_struct
 // global arrays and vars
 Particle* PAoS;
 Node* TAoS;
-Node* TAoS_swap_buffer;
+Node* TAoS_swap_buffer; 
 
 uint32_t TAoS_current_size;
 uint32_t TAoS_max_size;  
@@ -320,8 +321,7 @@ void insert_blanks(uint32_t parent_TAoS_index)
     // insert 8 blank children
     for(int i = 1; i <= 8; i++)
     {
-        Node* n = &TAoS[TAoS_current_size];
-        TAoS_current_size = TAoS_current_size + 1;
+        Node* n = &TAoS[TAoS_current_size++];
 
         n->PAoS_index = UINT32_MAX;
         n->tree_index = parent->tree_index*8 + i;
@@ -388,14 +388,18 @@ void insert_particle_in_tree(Node* TAoS, uint32_t PAoS_index) // a node should h
     bounds current_bounds = bounds(-tree_boundary, tree_boundary, -tree_boundary, tree_boundary, -tree_boundary, tree_boundary); // start with entire tree boundary
     Node* current_node = TAoS;
     Node* parent_node = TAoS; 
-/*
+
+    bool oob = false;
     if(PAoS[PAoS_index].pos.x < current_bounds.x_lb || PAoS[PAoS_index].pos.x > current_bounds.x_ub ||
     PAoS[PAoS_index].pos.y < current_bounds.y_lb || PAoS[PAoS_index].pos.y > current_bounds.y_ub ||
     PAoS[PAoS_index].pos.z < current_bounds.z_lb || PAoS[PAoS_index].pos.z > current_bounds.z_ub) 
     {
         printf("PARTICLE IS OUT OF BOUNDS!!!!!!!!!\n"); 
+        printf("(%6.4f, %6.4f, %6.4f)\t(%6.4f, %6.4f, %6.4f) - (%6.4f, %6.4f, %6.4f)\n", PAoS[PAoS_index].pos.x, PAoS[PAoS_index].pos.y, PAoS[PAoS_index].pos.z, current_bounds.x_lb, current_bounds.y_lb, current_bounds.z_lb, 
+                        current_bounds.x_ub, current_bounds.y_ub, current_bounds.z_ub);
+        oob = true;
     }
-*/
+
 
     //uint32_t parent_TAoS_index;
 
@@ -408,7 +412,8 @@ void insert_particle_in_tree(Node* TAoS, uint32_t PAoS_index) // a node should h
 
     // loop until we find a blank. branch tree if we hit a particle. 
     //while(!is_blank_node(current_node))  // while(is_internal) ? is that equivalent
-    while(is_internal_node(current_node))
+    uint32_t depth = 0;
+    while(is_internal_node(current_node) || is_particle_node(current_node))
     {   
         // TODO: add COM and total_mass contribution on the way down the tree
         //current_node->com = ( (current_node->com * current_node->total_mass) + (p->mass * p->pos) ) / (current_node->total_mass + p->mass); 
@@ -416,13 +421,21 @@ void insert_particle_in_tree(Node* TAoS, uint32_t PAoS_index) // a node should h
         //printf("TAoS[%i] bounds(%6.4f - %6.4f, %6.4f - %6.4f, %6.4f - %6.4f)\t", current_node - TAoS, current_bounds.x_lb, current_bounds.x_ub, current_bounds.y_lb, current_bounds.y_ub, current_bounds.z_lb, current_bounds.z_ub);
         //printf("TAoS[%i]\t", current_node - TAoS);
         // advance the tree
-   
+        //printf(nodeToString(*current_node).c_str());
+        
+        if(depth != 0)
+        {
+            parent_node = current_node;
+        }
+        depth++;
+        /*
         if(flag)
         {
             parent_node = current_node;    
         }
         flag = true;
-
+        */
+        
         uint8_t sub_index = get_subregion_index(current_bounds, p->pos);
         current_bounds =  get_subregion(current_bounds, sub_index);
 
@@ -445,6 +458,10 @@ void insert_particle_in_tree(Node* TAoS, uint32_t PAoS_index) // a node should h
             // this is why we must insert 8 children at once, or none 
             current_node = &TAoS[current_node->first_child_TAoS_index + sub_index]; 
         }
+    }
+    if(oob)
+    {
+        printf("PAoS[%i] was out of bounds and reached depth %i\n", PAoS_index, depth);
     }
 
     uint32_t parent_TAoS_index = (parent_node - TAoS); 
@@ -474,7 +491,7 @@ void generate_TAoS(Node* TAoS, Particle* PAoS)
     root->total_mass = 0.0f;
 
     
-    TAoS_current_size = 1;
+    TAoS_current_size++;
 
     // insert 8 blank children
     insert_blanks(0);
@@ -493,8 +510,8 @@ void generate_TAoS(Node* TAoS, Particle* PAoS)
     {
         //printf("%i %i\n",TAoS_current_size, TAoS_max_size);
         insert_particle_in_tree(TAoS, pi);
-
     }
+    //printf("TAoS_current_size %i\n", TAoS_current_size);
 }
 
 // TODO: comapre with std::sort on the TAoS. how will we get the map to update the parent and child indices? 
@@ -618,6 +635,19 @@ void dfs_traverse(Node* TAoS, Particle* p)
 
     p->vel = p->vel + accel * dt;
     p->pos = p->pos + p->vel*dt; 
+    
+    // fixed here
+    if(std::abs(p->pos.x) > sys_boundary)
+        sys_boundary = std::abs(p->pos.x);
+        
+    if(std::abs(p->pos.y) > sys_boundary)
+        sys_boundary = std::abs(p->pos.y);
+        
+    if(std::abs(p->pos.z) > sys_boundary)
+        sys_boundary = std::abs(p->pos.z);
+    
+    tree_boundary = sys_boundary * boundary_fos; // only safe if we regenerate tree from scratch
+
 
     ///printf("\npos: (%10.8f, %10.8f, %10.8f)\n", p->pos.x, p->pos.y, p->pos.z);
     ///printf("vel: (%10.8f, %10.8f, %10.8f)\n", p->vel.x, p->vel.y, p->vel.z);    
@@ -742,13 +772,13 @@ int main (int argc, char** argv)
     sys_com = sys_com * (1.0f/sys_mass);
 
     sys_boundary = max_dim;
-    tree_boundary = max_dim * 1.25f; // 1/2 of the cubic width
-
+    //tree_boundary = max_dim * 1.25f; // 1/2 of the cubic width
+    tree_boundary = max_dim * boundary_fos;
 
 
     TAoS_max_size = fos * N;
     TAoS = (Node*) malloc (TAoS_max_size * sizeof(Node));
-    TAoS_swap_buffer = (Node*) malloc (TAoS_max_size * sizeof(Node));
+    //TAoS_swap_buffer = (Node*) malloc (TAoS_max_size * sizeof(Node)); // we dont need this unless we are sorting
 
     sort_array = (Index_Pair*) malloc(TAoS_max_size * sizeof(Index_Pair));
     map = (uint32_t*) malloc(TAoS_max_size * sizeof(uint32_t));
@@ -776,8 +806,8 @@ int main (int argc, char** argv)
         auto t2 = std::chrono::steady_clock::now();
         //sort_TAoS(TAoS, TAoS_swap_buffer, sort_array, map, TAoS_current_size, TAoS_max_size); // this is optional for cpu version. It just slows us down unecessarily! 
         auto t3 = std::chrono::steady_clock::now();
-        //calculate_forces(TAoS, PAoS, N);
-        xthreaded_calculate_forces(num_threads, TAoS, PAoS, N);
+        calculate_forces(TAoS, PAoS, N);
+        //xthreaded_calculate_forces(num_threads, TAoS, PAoS, N);
         auto t4 = std::chrono::steady_clock::now();
         
         /*
@@ -792,9 +822,11 @@ int main (int argc, char** argv)
         calculate_forces_time += static_cast<uint64_t>((t4 - t3).count());
         
     }
+    /*
     update_TAoS_time /= steps;
     sort_TAoS_time /= steps;
     calculate_forces_time /= steps;
+    */
     total = update_TAoS_time + sort_TAoS_time + calculate_forces_time;
 
 
@@ -893,4 +925,66 @@ YYYY-where published-title
 */
 
 //TODO: deal with out of bounds
-//TODO: check for when we exceed TAoS_max_size during traversal. Sometimes the previous swap buffer may mislead us. There could be particles, internals, etc left over that are beyond our TAoS_max_size scope that we are accidentally considerin as valid.
+
+
+
+// -O3, microway, check for correctness with pthread, test larger dataset, new design ideas
+
+/*
+Idea for handling out of bounds without regenerating tree (dynamic adjustment)
+
+when particle is oob, rather than branching infinitely when another oob particle competes with it, we just maintain a linked list for those particles.
+we cam't really do the hashing strategy bc then we will unjustly occupy  positions for valid particles (in bounds).
+
+oob linked list! or array ? 
+maybe we double tree boundary if the array gets filled, in addition to sys boundary doubling or halving 
+
+
+remap of tree indices is easier than you think. 
+for doubling boundary: each of the 8 subregions we add the same number to all of the nodes and their children. WE just need to figure out the 8 numbers. 
+for halving: same idea. if the subregion is getting 'deleted' then set its new tree index to UINT32_MAX (requires sorting? )
+
+check if we need to do this after calculating forces (in calculate force method). for xthreaded, communicate the max dims between threads. 
+
+double_and_sort
+half_and_sort
+
+maybe modify the sort method to do this?? will that work? i dont think so. we need two separate phases.  
+
+
+
+
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "2.0.0",
+    "configurations": [
+        
+        {
+            "name": "(gdb) Launch",
+            "type": "cppdbg",
+            "request": "launch",
+            "preLaunchTask": "C/C++: g++.exe build active file",
+            "program": "${fileDirname}/${fileBasenameNoExtension}.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "D:\\mingw-w64\\x86_64-8.1.0-posix-seh-rt_v6-rev0\\mingw64\\bin\\gdb.exe",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+
+    ]
+}
+
+*/
+

@@ -1,0 +1,10 @@
+{
+    "terminal.integrated.shell.windows":           "D:\\Program Files\\Git\\bin\\bash.exe",
+    "terminal.integrated.automationShell.windows": "D:\\Program Files\\Git\\bin\\bash.exe",
+
+    
+    //"terminal.integrated.shell.windows":           "D:\\cygwin64\\bin\\bash.exe",
+    //"terminal.integrated.automationShell.windows": "D:\\cygwin64\\bin\\bash.exe",
+    //"terminal.integrated.env.windows": { "CHERE_INVOKING": "1" },
+    //"terminal.integrated.shellArgs.windows": [ "--login" ]
+}

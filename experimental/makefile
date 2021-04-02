@@ -1,9 +1,10 @@
 Makefile: 
 
-PROJECT_DIR = /d/Git/N-Body-Simulation/experimental
-OBJ_DIR = $(PROJECT_DIR)/objs
+#PROJECT_DIR = /cygdrive/d/Git/N-Body-Simulation/experimental
+#OBJ_DIR = $(PROJECT_DIR)/objs
 
 CC = g++
+CC_FLAGS = -Dgtest_disable_pthreads=ON
 #LIBS = 
 
 #INCLUDES =
@@ -14,12 +15,12 @@ CC = g++
 OBJS = main.o
 
 main.o: main.cpp 
-	$(CC) -c main.cpp
-	mv main.o $(OBJ_DIR)/main.o
+	$(CC) $(CC_FLAGS) -c main.cpp
+	mv main.o objs/main.o
+	
 
-
-exe: clean $(OBJS)
-	$(CC) -o $(PROJECT_DIR)/a.exe  $(OBJ_DIR)/*.o
- 
+main: clean # $(OBJS)
+#	$(CC) $(CC_FLAGS) -o main.exe  objs/*.o
+	$(CC) $(CC_FLAGS) -o main.exe main.cpp
 clean: 
 	rm -f $(OBJ_DIR)/*.o
