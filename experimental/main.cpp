@@ -10,6 +10,7 @@
 #include <ctime>
 #include <chrono>
 #include <pthread.h> 
+#include <assert.h>
 
 //const uint32_t N = 50;
 //const float G = 6.6743e-11; 
@@ -376,6 +377,23 @@ void insert_internal_on_particle(uint32_t TAoS_index, bounds& b)
 
 }
 
+void merge_particles(Node* existing_particle,  uint32_t PAoS_index)
+{
+     if(!is_particle_node(existing_particle))
+    {
+        printf("error in merge_particles : existing node isn't a particle!!!\n");
+        return;
+    }
+
+    Particle* p =  &PAoS[PAoS_index];
+
+    existing_particle->com = ((existing_particle->com * existing_particle->total_mass) + p->pos * p->mass) / (existing_particle->total_mass + p->mass);
+    existing_particle->total_mass = (existing_particle->total_mass + p->mass);
+    printf("merged new mass %6.4f\n", existing_particle->total_mass);
+
+    //existing_particle->PAoS_index = PAoS_index; // can we just leave the PAoS index the same as the original  ? 
+
+}
 
 
 
@@ -413,7 +431,9 @@ void insert_particle_in_tree(Node* TAoS, uint32_t PAoS_index) // a node should h
     // loop until we find a blank. branch tree if we hit a particle. 
     //while(!is_blank_node(current_node))  // while(is_internal) ? is that equivalent
     uint32_t depth = 0;
-    while(is_internal_node(current_node) || is_particle_node(current_node))
+    uint32_t pinarow = 0;
+    bool merged = false; 
+    while(is_internal_node(current_node) || is_particle_node(current_node) && !merged)
     {   
         // TODO: add COM and total_mass contribution on the way down the tree
         //current_node->com = ( (current_node->com * current_node->total_mass) + (p->mass * p->pos) ) / (current_node->total_mass + p->mass); 
@@ -447,7 +467,31 @@ void insert_particle_in_tree(Node* TAoS, uint32_t PAoS_index) // a node should h
 
         if(is_particle_node(current_node))
         {
-            insert_internal_on_particle(current_node - TAoS, current_bounds); 
+            pinarow++;
+            if(pinarow == 30) // problem is that two particle have very similar positions. just combine them into a single particle node on the tree. 
+            {
+                
+                printf("\npinarow getting big : %i\n", pinarow);
+
+                merge_particles(current_node, PAoS_index);
+                merged = true;
+
+                //Node* tmp = TAoS;
+                //bounds b = bounds(-tree_boundary, tree_boundary, -tree_boundary, tree_boundary, -tree_boundary, tree_boundary);
+
+                /*
+                printf("PAoS[%i] : (%6.4f, %6.4f, %6.4f)\n", PAoS_index, p->pos.x, p->pos.y, p->pos.z);
+                Node* tmp = current_node;
+                while(tmp != TAoS)
+                {
+                    printf("com : %6.4f, %6.4f, %6.4f\n", tmp->com.x, tmp->com.y, tmp->com.z);
+                    printf("mass: %6.4f\n", tmp->total_mass);
+                    tmp = &TAoS[tmp->parent_TAoS_index];
+                }
+                */
+            }
+            else
+                insert_internal_on_particle(current_node - TAoS, current_bounds); 
         }
         else // only advance if it was already and internal node. 
         {
@@ -472,6 +516,12 @@ void insert_particle_in_tree(Node* TAoS, uint32_t PAoS_index) // a node should h
         insert_particle_on_blank(current_node, PAoS_index);
         
         return; 
+    }
+    else if (merged)
+    {
+        printf ("successfully merged particles:\n PAoS[%i] : (%6.4f, %6.4f, %6.4f)\n PAoS[%i] : (%6.4f, %6.4f, %6.4f)\n", current_node->PAoS_index, 
+            PAoS[current_node->PAoS_index].pos.x, PAoS[current_node->PAoS_index].pos.y, PAoS[current_node->PAoS_index].pos.z, PAoS_index, PAoS[PAoS_index].pos.x, PAoS[PAoS_index].pos.y, PAoS[PAoS_index].pos.z);
+        printf("new total mass: %6.4f\n", current_node->total_mass);
     }
     
 }
@@ -796,7 +846,7 @@ int main (int argc, char** argv)
     generate_TAoS(TAoS, PAoS);
     gen_TAoS_time = (std::chrono::steady_clock::now() - t0).count();
     
-
+    uint32_t max_TAoS_size_reached = 0;
     int steps = 1000;
     for(int i = 0; i < steps; i++)
     {
@@ -809,24 +859,20 @@ int main (int argc, char** argv)
         calculate_forces(TAoS, PAoS, N);
         //xthreaded_calculate_forces(num_threads, TAoS, PAoS, N);
         auto t4 = std::chrono::steady_clock::now();
-        
-        /*
-        for(int j = 0; j < 5; j++)
-        {
-            printf("(%8.6f, %8.6f, %8.6f)  \t", PAoS[j].pos.x,  PAoS[j].pos.y,  PAoS[j].pos.z);
-        }
-        printf("\n\n");
-        */
+
+
+        if(TAoS_current_size > max_TAoS_size_reached)	
+            max_TAoS_size_reached = TAoS_current_size;	
+
         update_TAoS_time += static_cast<uint64_t>((t2 - t1).count());
         sort_TAoS_time += static_cast<uint64_t>((t3 - t2).count());
         calculate_forces_time += static_cast<uint64_t>((t4 - t3).count());
-        
     }
-    /*
+    
     update_TAoS_time /= steps;
     sort_TAoS_time /= steps;
     calculate_forces_time /= steps;
-    */
+    
     total = update_TAoS_time + sort_TAoS_time + calculate_forces_time;
 
 
@@ -987,4 +1033,3 @@ maybe modify the sort method to do this?? will that work? i dont think so. we ne
 }
 
 */
-
