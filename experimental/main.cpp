@@ -15,13 +15,15 @@
 //const uint32_t N = 50;
 //const float G = 6.6743e-11; 
 
-#define N 1000
+//#define N 1000
 #define G 1.0f
 #define dt  0.1f
 #define theta  1.0f
 #define epsilon 0.01f
 #define fos 20
 #define boundary_fos 1.25f
+
+
 
 typedef struct float3
 {
@@ -81,6 +83,8 @@ typedef struct xthread_arg_struct
 
 
 // global arrays and vars
+uint32_t N;
+
 Particle* PAoS;
 Node* TAoS;
 Node* TAoS_swap_buffer; 
@@ -94,6 +98,7 @@ float tree_boundary;
 
 Index_Pair* sort_array;
 uint32_t* map;
+
 
 
 bool is_internal_node(Node* node);
@@ -763,12 +768,28 @@ int main (int argc, char** argv)
 {
     uint8_t num_threads;
     if(argc < 2) {
-        printf("Usage: %s <num_threads>\n", argv[0]);
-        printf("Applying Default: <num_threads> = 1\n\n");
+        printf("Usage:\t%s <num_particles> <num_threads>\n or \n", argv[0]);
+        printf("or \t%s <num_particles>\n", argv[0]);
+        printf("Applying Default: <num_particles> = 1000  <num_threads> = 1 \n");
+        
+        N = 1000;
+        num_threads = 1;
     }
-    else {
-        num_threads = atoi(argv[1]);
-        printf("<num_threads> = %i\n", (int) num_threads);
+    else if(argc == 2) {
+
+        printf("<num_particles> = %i\n", atoi(argv[1]));
+        printf("Applying Default <num_threads> = 1 \n");
+        
+        N = atoi(argv[1]);
+        num_threads = 1; 
+    }
+    else
+    {
+        printf("<num_particles> = %i\n", atoi(argv[1]));
+        printf("<num_threads> = %i\n", atoi(argv[2]));
+
+        N = atoi(argv[1]);
+        num_threads = atoi(argv[2]);
     }
 
     uint32_t *TMS, *TCS;
