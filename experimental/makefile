@@ -36,9 +36,9 @@ main.o: main.cpp
 	mv main.o objs/main.o
 	
 
-main: clean # $(OBJS)
+exe: clean # $(OBJS)
 #	$(CC) $(CC_FLAGS) -o main.exe  objs/*.o
-	$(CC) $(CC_FLAGS) -o main.exe main.cpp
+	$(CC) $(CC_FLAGS) -o a.exe main.cpp
 
 clean: 
 	rm -f $(OBJ_DIR)/*.o

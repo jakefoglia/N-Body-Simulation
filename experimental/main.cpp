@@ -12,18 +12,15 @@
 #include <pthread.h> 
 #include <assert.h>
 
-//const uint32_t N = 50;
-//const float G = 6.6743e-11; 
 
-//#define N 1000
+
+//const float G = 6.6743e-11; 
 #define G 1.0f
 #define dt  0.1f
 #define theta  1.0f
 #define epsilon 0.01f
 #define fos 20
 #define boundary_fos 1.25f
-
-
 
 typedef struct float3
 {
@@ -81,7 +78,6 @@ typedef struct xthread_arg_struct
 } xthread_arg_struct;
 
 
-
 // global arrays and vars
 uint32_t N;
 
@@ -100,12 +96,13 @@ Index_Pair* sort_array;
 uint32_t* map;
 
 
+//float3* accels; // for debugging multithreading
+
 
 bool is_internal_node(Node* node);
 bool is_particle_node(Node* node);
 bool is_blank_node(Node* node);
 bool is_empty_node(Node* node);
-
 
 std::string particleToString(Particle& p)
 {
@@ -132,15 +129,6 @@ int depth(int x) // N = 4 for quadtree, N = 8 for octree
 {
     return  floor (log( (7) * x + 1) / log(8) );
 }
-
-
-/*
-bounds get_bounds(uint32_t tree_index)
-{
-    
-}
-*/
-
 
 uint8_t get_subregion_index(bounds& parent_region, float3& pos) // returns 0 through 7, specifying the subregion. x is 3rd bit, y is 2nd bit, z is 1st bit
 {
@@ -240,8 +228,6 @@ bounds get_subregion(bounds& parent_region, float3& pos)
         region.z_ub = center.z;
     }
     return region; 
-
-
 }
 
 bool is_child_tree_index(uint32_t pti, uint32_t cti)
@@ -249,48 +235,6 @@ bool is_child_tree_index(uint32_t pti, uint32_t cti)
     return ((cti - 1) / 8 == pti);
 }
 
-/* method is broken and useless. Do not use
-bool has_children(Node*& parent) // do blanks count as chilren? 
-{
-    uint32_t fci = parent->first_child_TAoS_index;
-
-    if(fci == UINT32_MAX)
-        return false; 
-
-    if(fci > TAoS_current_size)
-    {
-        printf("SOMETHING IS WRONG!!\n");
-        return false; 
-    }
-
-    Node* child = &TAoS[fci];
-    
-
-
-    // keep this for safety for now
-    if(child->tree_index != UINT32_MAX && !is_child_tree_index(parent->tree_index, child->tree_index))
-    {
-        printf("\nSOMETHING IS WRONG WITH TAoS child indexing!!!\n");
-        printf("fci %i\n", fci);
-        printf("pti %i\n", parent->tree_index);
-        printf("cti %i\n", child->tree_index);
-        
-        printf("is child : %i\n", ((child->tree_index - 1) / 8 == parent->tree_index));
-    }
-
-    if(child->tree_index != UINT32_MAX && is_child_tree_index(parent->tree_index, child->tree_index))
-        return true;
-
-    return false; 
-
-}
-*/
-/*
-bool is_valid(Node* node)
-{
-    return (node - TAoS < TAoS_current_size);
-}
-*/
 bool is_internal_node(Node* node)
 {
             // cant be empty node             // cant be particle               // must have children
@@ -317,7 +261,6 @@ bool is_empty_node(Node* node)
 // 3 types of nodes: internal, particle, blank. 
 // root starts as blank: it has no children but its not a particle
 // then after trying to add one particle, we add the particle and 7 other blank node children which will be turned into particles then internal nodes when necessary. 
-
 
 void insert_blanks(uint32_t parent_TAoS_index)
 {
@@ -368,7 +311,6 @@ void insert_internal_on_particle(uint32_t TAoS_index, bounds& b)
     }
 
     Node bkp = *node; // create a copy
-    //uint32_t parent_TAoS_index = bkp.parent_TAoS_index;
 
     insert_blanks(TAoS_index);
     node->com = bkp.com;
@@ -379,7 +321,6 @@ void insert_internal_on_particle(uint32_t TAoS_index, bounds& b)
     uint32_t target_TAoS_index = node->first_child_TAoS_index + sub_index; 
 
     insert_particle_on_blank(&TAoS[target_TAoS_index], bkp.PAoS_index); // theres gotta be a better way than this. override the method to just take a Node& particle 
-
 }
 
 void merge_particles(Node* existing_particle,  uint32_t PAoS_index)
@@ -394,23 +335,19 @@ void merge_particles(Node* existing_particle,  uint32_t PAoS_index)
 
     existing_particle->com = ((existing_particle->com * existing_particle->total_mass) + p->pos * p->mass) / (existing_particle->total_mass + p->mass);
     existing_particle->total_mass = (existing_particle->total_mass + p->mass);
-    printf("merged new mass %6.4f\n", existing_particle->total_mass);
 
-    //existing_particle->PAoS_index = PAoS_index; // can we just leave the PAoS index the same as the original  ? 
-
+    //printf("merged new mass %6.4f\n", existing_particle->total_mass);
+    //existing_particle->PAoS_index = PAoS_index; // can we just leave the PAoS index the same as the original? We cant have multiple values for this simultaneously.  
 }
-
-
 
 void insert_particle_in_tree(Node* TAoS, uint32_t PAoS_index) // a node should have 0 children, or 8 children (must be consecutive)
 {
- 
     //printf("\ninserting PAoS[%i] TCS: %i  TMS: %i  POS(%6.4f, %6.4f, %6.4f)\n", PAoS_index, TAoS_current_size, TAoS_max_size, PAoS[PAoS_index].pos.x, PAoS[PAoS_index].pos.y, PAoS[PAoS_index].pos.z);
-    
     Particle* p = &PAoS[PAoS_index];
     bounds current_bounds = bounds(-tree_boundary, tree_boundary, -tree_boundary, tree_boundary, -tree_boundary, tree_boundary); // start with entire tree boundary
     Node* current_node = TAoS;
     Node* parent_node = TAoS; 
+
 
     bool oob = false;
     if(PAoS[PAoS_index].pos.x < current_bounds.x_lb || PAoS[PAoS_index].pos.x > current_bounds.x_ub ||
@@ -424,42 +361,19 @@ void insert_particle_in_tree(Node* TAoS, uint32_t PAoS_index) // a node should h
     }
 
 
-    //uint32_t parent_TAoS_index;
-
-    bool flag = false; 
-    
-    /*
-    // traverse until we find a blank or a particle to split
-    while(!is_blank_node(current_node) && !is_particle_node(current_node) ) // then it should have 8 consecutive children
-    */
-
     // loop until we find a blank. branch tree if we hit a particle. 
     //while(!is_blank_node(current_node))  // while(is_internal) ? is that equivalent
     uint32_t depth = 0;
     uint32_t pinarow = 0;
     bool merged = false; 
+
     while(is_internal_node(current_node) || is_particle_node(current_node) && !merged)
     {   
-        // TODO: add COM and total_mass contribution on the way down the tree
-        //current_node->com = ( (current_node->com * current_node->total_mass) + (p->mass * p->pos) ) / (current_node->total_mass + p->mass); 
-
-        //printf("TAoS[%i] bounds(%6.4f - %6.4f, %6.4f - %6.4f, %6.4f - %6.4f)\t", current_node - TAoS, current_bounds.x_lb, current_bounds.x_ub, current_bounds.y_lb, current_bounds.y_ub, current_bounds.z_lb, current_bounds.z_ub);
-        //printf("TAoS[%i]\t", current_node - TAoS);
-        // advance the tree
-        //printf(nodeToString(*current_node).c_str());
-        
         if(depth != 0)
         {
             parent_node = current_node;
         }
         depth++;
-        /*
-        if(flag)
-        {
-            parent_node = current_node;    
-        }
-        flag = true;
-        */
         
         uint8_t sub_index = get_subregion_index(current_bounds, p->pos);
         current_bounds =  get_subregion(current_bounds, sub_index);
@@ -469,31 +383,14 @@ void insert_particle_in_tree(Node* TAoS, uint32_t PAoS_index) // a node should h
         if( (!is_particle_node(current_node) && current_node->first_child_TAoS_index == UINT32_MAX) ) // debug
             printf("uhh ohh 2 in insert_node()\n\n");
 
-
         if(is_particle_node(current_node))
         {
             pinarow++;
             if(pinarow == 30) // problem is that two particle have very similar positions. just combine them into a single particle node on the tree. 
             {
-                
-                printf("\npinarow getting big : %i\n", pinarow);
-
+                //printf("\npinarow getting big : %i\n", pinarow);
                 merge_particles(current_node, PAoS_index);
                 merged = true;
-
-                //Node* tmp = TAoS;
-                //bounds b = bounds(-tree_boundary, tree_boundary, -tree_boundary, tree_boundary, -tree_boundary, tree_boundary);
-
-                /*
-                printf("PAoS[%i] : (%6.4f, %6.4f, %6.4f)\n", PAoS_index, p->pos.x, p->pos.y, p->pos.z);
-                Node* tmp = current_node;
-                while(tmp != TAoS)
-                {
-                    printf("com : %6.4f, %6.4f, %6.4f\n", tmp->com.x, tmp->com.y, tmp->com.z);
-                    printf("mass: %6.4f\n", tmp->total_mass);
-                    tmp = &TAoS[tmp->parent_TAoS_index];
-                }
-                */
             }
             else
                 insert_internal_on_particle(current_node - TAoS, current_bounds); 
@@ -508,26 +405,22 @@ void insert_particle_in_tree(Node* TAoS, uint32_t PAoS_index) // a node should h
             current_node = &TAoS[current_node->first_child_TAoS_index + sub_index]; 
         }
     }
-    if(oob)
-    {
+    if(oob) {
         printf("PAoS[%i] was out of bounds and reached depth %i\n", PAoS_index, depth);
     }
 
     uint32_t parent_TAoS_index = (parent_node - TAoS); 
     if(is_blank_node(current_node))
     {
-        //printf("reached valid blank! Trying to insert at TAoS[%i]\n", current_node-TAoS);
-        //printf("inserting PAoS[%i] on blank child of tree_index %i\n", PAoS_index, TAoS[parent_TAoS_index].tree_index); // debug
         insert_particle_on_blank(current_node, PAoS_index);
-        
         return; 
     }
-    else if (merged)
+    /*else if (merged)
     {
         printf ("successfully merged particles:\n PAoS[%i] : (%6.4f, %6.4f, %6.4f)\n PAoS[%i] : (%6.4f, %6.4f, %6.4f)\n", current_node->PAoS_index, 
             PAoS[current_node->PAoS_index].pos.x, PAoS[current_node->PAoS_index].pos.y, PAoS[current_node->PAoS_index].pos.z, PAoS_index, PAoS[PAoS_index].pos.x, PAoS[PAoS_index].pos.y, PAoS[PAoS_index].pos.z);
         printf("new total mass: %6.4f\n", current_node->total_mass);
-    }
+    }*/
     
 }
 
@@ -561,15 +454,12 @@ void generate_TAoS(Node* TAoS, Particle* PAoS)
         n->parent_TAoS_index = UINT32_MAX;
     }
 
-    for(int pi = 0; pi < N; pi++)
-    {
-        //printf("%i %i\n",TAoS_current_size, TAoS_max_size);
+    for(int pi = 0; pi < N; pi++) {
         insert_particle_in_tree(TAoS, pi);
     }
-    //printf("TAoS_current_size %i\n", TAoS_current_size);
 }
 
-// TODO: comapre with std::sort on the TAoS. how will we get the map to update the parent and child indices? 
+
 
 void sort_TAoS(Node*& TAoS, Node*& TAoS_swap_buffer, Index_Pair* n2o, uint32_t* m, uint32_t n, uint32_t max) 
 {
@@ -625,6 +515,7 @@ void sort_TAoS(Node*& TAoS, Node*& TAoS_swap_buffer, Index_Pair* n2o, uint32_t* 
     TAoS = TAoS_swap_buffer;
     TAoS_swap_buffer = temp;
 }
+
 float norm(float3 vec)
 {
     return std::sqrt(vec.x*vec.x + vec.y*vec.y + vec.z*vec.z);
@@ -688,10 +579,13 @@ void dfs_traverse(Node* TAoS, Particle* p)
 
     ///printf("\naccel: (%10.8f, %10.8f, %10.8f)\n", accel.x, accel.y, accel.z);
 
+
+    //accels[p-PAoS] = accel; // debugging
+
     p->vel = p->vel + accel * dt;
     p->pos = p->pos + p->vel*dt; 
     
-    // fixed here
+
     if(std::abs(p->pos.x) > sys_boundary)
         sys_boundary = std::abs(p->pos.x);
         
@@ -702,7 +596,6 @@ void dfs_traverse(Node* TAoS, Particle* p)
         sys_boundary = std::abs(p->pos.z);
     
     tree_boundary = sys_boundary * boundary_fos; // only safe if we regenerate tree from scratch
-
 
     ///printf("\npos: (%10.8f, %10.8f, %10.8f)\n", p->pos.x, p->pos.y, p->pos.z);
     ///printf("vel: (%10.8f, %10.8f, %10.8f)\n", p->vel.x, p->vel.y, p->vel.z);    
@@ -715,6 +608,7 @@ void calculate_forces(Node* TAoS, Particle* PAoS, uint32_t n)
         dfs_traverse(TAoS, &PAoS[i]); // traverse starting at the root node
     }
 }
+
 void* xthreaded_traversal(void* arg)
 {
     xthread_arg_struct* arg_struct = (xthread_arg_struct*) arg;
@@ -727,8 +621,8 @@ void* xthreaded_traversal(void* arg)
 
     pthread_exit(0);
     return nullptr;
-
 }
+
 void xthreaded_calculate_forces(uint8_t num_threads, Node* TAoS, Particle* PAoS, uint32_t n)
 {
     xthread_arg_struct arg_structs[num_threads];
@@ -763,33 +657,40 @@ void xthreaded_calculate_forces(uint8_t num_threads, Node* TAoS, Particle* PAoS,
     return;
 }
 
-
 int main (int argc, char** argv)
 {
     uint8_t num_threads;
-    if(argc < 2) {
-        printf("Usage:\t%s <num_particles> <num_threads>\n or \n", argv[0]);
+    uint32_t steps; 
+
+    if(argc < 3) {
+        printf("Usage:\t%s <num_particles> <num_iterations> <num_threads>\n or \n", argv[0]);
+        return -1; 
+
+        /*
         printf("or \t%s <num_particles>\n", argv[0]);
         printf("Applying Default: <num_particles> = 1000  <num_threads> = 1 \n");
         
         N = 1000;
         num_threads = 1;
+        */
     }
-    else if(argc == 2) {
+    /*else if(argc == 2) {
 
         printf("<num_particles> = %i\n", atoi(argv[1]));
         printf("Applying Default <num_threads> = 1 \n");
         
         N = atoi(argv[1]);
         num_threads = 1; 
-    }
+    }*/
     else
     {
         printf("<num_particles> = %i\n", atoi(argv[1]));
-        printf("<num_threads> = %i\n", atoi(argv[2]));
+        printf("<num_iterations> = %i\n", atoi(argv[2]));
+        printf("<num_threads> = %i\n", atoi(argv[3]));
 
         N = atoi(argv[1]);
-        num_threads = atoi(argv[2]);
+        steps = atoi(argv[2]);
+        num_threads = atoi(argv[3]);
     }
 
     uint32_t *TMS, *TCS;
@@ -797,13 +698,15 @@ int main (int argc, char** argv)
     TCS = &TAoS_current_size;
 
 
-
     float3 sys_com = float3{0.0f, 0.0f, 0.0f};
     float sys_mass = 0.0f;
     float max_dim = 0.0f;
 
-    //std::vector<Particle*> particles;
+
     PAoS = (Particle*) malloc(N * sizeof(Particle)); 
+
+    //accels = (float3*) malloc(N * sizeof(float3)); // for xthreaded debugging
+
 
     srand(time(NULL));
     uint32_t range = 1000; 
@@ -855,7 +758,6 @@ int main (int argc, char** argv)
     map = (uint32_t*) malloc(TAoS_max_size * sizeof(uint32_t));
 
 
-
     uint64_t update_TAoS_time = 0;
     uint64_t sort_TAoS_time = 0;
     uint64_t calculate_forces_time = 0;
@@ -863,12 +765,13 @@ int main (int argc, char** argv)
     uint64_t total = 0;
 
 
+
     auto t0 =  std::chrono::steady_clock::now();
     generate_TAoS(TAoS, PAoS);
     gen_TAoS_time = (std::chrono::steady_clock::now() - t0).count();
     
     uint32_t max_TAoS_size_reached = 0;
-    int steps = 1000;
+    
     for(int i = 0; i < steps; i++)
     {
         auto t1 = std::chrono::steady_clock::now();
@@ -877,8 +780,8 @@ int main (int argc, char** argv)
         auto t2 = std::chrono::steady_clock::now();
         //sort_TAoS(TAoS, TAoS_swap_buffer, sort_array, map, TAoS_current_size, TAoS_max_size); // this is optional for cpu version. It just slows us down unecessarily! 
         auto t3 = std::chrono::steady_clock::now();
-        calculate_forces(TAoS, PAoS, N);
-        //xthreaded_calculate_forces(num_threads, TAoS, PAoS, N);
+        //calculate_forces(TAoS, PAoS, N);
+        xthreaded_calculate_forces(num_threads, TAoS, PAoS, N);
         auto t4 = std::chrono::steady_clock::now();
 
 
