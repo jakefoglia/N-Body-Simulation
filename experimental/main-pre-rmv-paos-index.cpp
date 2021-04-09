@@ -11,7 +11,6 @@
 #include <chrono>
 #include <pthread.h> 
 #include <assert.h>
-#include <inttypes.h>
 
 
 
@@ -55,8 +54,9 @@ typedef struct Particle
 
 typedef struct Node
 {
-    uint64_t tree_index; 
-    
+    uint32_t tree_index; 
+    uint32_t PAoS_index; 
+
     uint32_t parent_TAoS_index;
     uint32_t first_child_TAoS_index; 
 
@@ -122,7 +122,7 @@ std::string nodeToString(Node& n)
         type+="particle ";    
 
     return std::string("tree index : ") + std::to_string(n.tree_index) + "  " + type + "\ncom: (" + std::to_string(n.com.x) + ", " +  std::to_string(n.com.y) + ", " +  std::to_string(n.com.z) + ")"
-        + "\ntotal mass: " +std::to_string(n.total_mass) +  "\n" + "PAoS index : " + 
+        + "\ntotal mass: " +std::to_string(n.total_mass) +  "\n" + "PAoS index : " + std::to_string(n.PAoS_index) + "\nparent_TAoS_index : " +
             std::to_string(n.parent_TAoS_index) + "\nfirst_child_TAoS_index : " + std::to_string(n.first_child_TAoS_index) + "\n";  ;
 }
 
@@ -238,18 +238,19 @@ bool is_child_tree_index(uint32_t pti, uint32_t cti)
 
 bool is_internal_node(Node* node)
 {
-            // cant be empty node                     // must have children
-    return(node->tree_index != UINT32_MAX &&  node->first_child_TAoS_index != UINT32_MAX);
+            // cant be empty node             // cant be particle               // must have children
+    return(node->tree_index != UINT32_MAX && node->PAoS_index == UINT32_MAX && node->first_child_TAoS_index != UINT32_MAX);
 }
 bool is_blank_node(Node* node) // a blank is a leaf node thats not a particle. 
 {
-            // cant be empty node              // cant have children                         // can't have mass
-    return (node->tree_index != UINT32_MAX &&  node->first_child_TAoS_index == UINT32_MAX && node->total_mass == 0.0f);
+            // cant be empty node             // cant be particle               // cant have children
+    return (node->tree_index != UINT32_MAX && node->PAoS_index == UINT32_MAX && node->first_child_TAoS_index == UINT32_MAX);
 }
+
 bool is_particle_node(Node* node)
 {       
-            // cant be empty node             // cant have children                          // mass must be nonzero
-    return (node->tree_index != UINT32_MAX    && node->first_child_TAoS_index == UINT32_MAX && node->total_mass != 0.0f);
+            // cant be empty node           // must have index on the PAoS array   // cant have children
+    return (node->tree_index != UINT32_MAX && node->PAoS_index != UINT32_MAX    && node->first_child_TAoS_index == UINT32_MAX);
 }
 bool is_empty_node(Node* node)
 {
@@ -272,34 +273,23 @@ void insert_blanks(uint32_t parent_TAoS_index)
     {
         Node* n = &TAoS[TAoS_current_size++];
 
+        n->PAoS_index = UINT32_MAX;
         n->tree_index = parent->tree_index*8 + i;
         n->first_child_TAoS_index = UINT32_MAX; // no children yet, these are blanks
         n->parent_TAoS_index = parent_TAoS_index;
 
-        n->total_mass = 0.0f; // blank
+        n->total_mass = 0.0f;
         n->com = float3{0.0f, 0.0f, 0.0f};
     }
     //printf("inserted blanks as child of TAoS[%i]\n", parent_TAoS_index); // debug
 }
 
-void insert_particle_on_blank(Node* blank,  Node& particle_backup)
+
+void insert_particle_on_blank(Node* blank,  uint32_t PAoS_index) //uint32_t parent_TAoS_index,
 {
     if(!is_blank_node(blank))
     {
-        printf("error in insert_particle_on_blank1 : node isn't blank!!!\n");
-        return;
-    }
-
-    blank->com = particle_backup.com;
-    blank->total_mass = particle_backup.total_mass;
-    blank->first_child_TAoS_index = UINT32_MAX;
-}
-
-void insert_particle_on_blank(Node* blank,  uint32_t PAoS_index)
-{
-    if(!is_blank_node(blank))
-    {
-        printf("error in insert_particle_on_blank2 : node isn't blank!!!\n");
+        printf("error in insert_particle_on_blank : node isn't blank!!!\n");
         return;
     }
 
@@ -307,7 +297,9 @@ void insert_particle_on_blank(Node* blank,  uint32_t PAoS_index)
 
     blank->com = p->pos;
     blank->total_mass = p->mass;
+    blank->PAoS_index = PAoS_index; 
     blank->first_child_TAoS_index = UINT32_MAX;
+    //blank->parent_TAoS_index = parent_TAoS_index; // is this necessary? when blanks were inserted this should have been done already
 }
 
 void insert_internal_on_particle(uint32_t TAoS_index, bounds& b)
@@ -324,19 +316,18 @@ void insert_internal_on_particle(uint32_t TAoS_index, bounds& b)
     insert_blanks(TAoS_index);
     node->com = bkp.com;
     node->total_mass = bkp.total_mass;
+    node->PAoS_index = UINT32_MAX;
 
     uint8_t sub_index = get_subregion_index(b, bkp.com);
     uint32_t target_TAoS_index = node->first_child_TAoS_index + sub_index; 
 
     if(!is_blank_node(&TAoS[target_TAoS_index]))
     {
-        printf("TAoS[%i] ti %" PRIu64 "branch error at sub_index %i - internal on particle generated nonblank child at TAoS[%i]\n", TAoS_index, TAoS[TAoS_index].tree_index, sub_index, target_TAoS_index);
+        printf("TAoS[%i] ti %i   branch error at sub_index %i - internal on particle generated nonblank child at TAoS[%i]\n", TAoS_index, TAoS[TAoS_index].tree_index, sub_index, target_TAoS_index);
         printf("%s\n", nodeToString(TAoS[target_TAoS_index]).c_str());
     }
 
-
-    // FIX THIS !!!
-    insert_particle_on_blank(&TAoS[target_TAoS_index], bkp); // theres gotta be a better way than this. override the method to just take a Node& particle 
+    insert_particle_on_blank(&TAoS[target_TAoS_index], bkp.PAoS_index); // theres gotta be a better way than this. override the method to just take a Node& particle 
 }
 
 void merge_particles(Node* existing_particle,  uint32_t PAoS_index)
@@ -448,10 +439,11 @@ void generate_TAoS(Node* TAoS, Particle* PAoS)
     // initialize root node
     Node* root = TAoS;
     root->tree_index = 0;
+    root->PAoS_index = UINT32_MAX; // not a particle
     root->parent_TAoS_index = UINT32_MAX; // no parent
     root->first_child_TAoS_index = 1; // we will put 8 blanks there
     root->com = float3{0.0f, 0.0f, 0.0f};
-    root->total_mass = 0.0f; // not a particle
+    root->total_mass = 0.0f;
 
     
     TAoS_current_size++;
@@ -464,11 +456,9 @@ void generate_TAoS(Node* TAoS, Particle* PAoS)
     {
         Node* n = &TAoS[ti];
         n->tree_index = UINT32_MAX;
+        n->PAoS_index = UINT32_MAX;
         n->first_child_TAoS_index = UINT32_MAX;
         n->parent_TAoS_index = UINT32_MAX;
-        
-        n->total_mass = 0.0f; // new
-        n->com = float3(0.0f, 0.0f, 0.0f);
     }
 
     for(int pi = 0; pi < N; pi++) {
@@ -818,9 +808,9 @@ int main (int argc, char** argv)
 
 
     printf("\n\n\n");
-    printf("PAoS size :      %i\n", N);
-    printf("max TAoS size :  %i\n", max_TAoS_size_reached);
-    printf("ratio     :  %4.2f\n", ((max_TAoS_size_reached * 1.0f) / N));
+    printf("PAoS size :  %i\n", N);
+    printf("TAoS size :  %i\n", TAoS_current_size);
+    printf("ratio     :  %4.2f\n", ((TAoS_current_size * 1.0f) / N));
 
     printf("\nAvg Times:\n");
     printf("generate_TAoS_time : %lf ms\n", gen_TAoS_time/1E6);
