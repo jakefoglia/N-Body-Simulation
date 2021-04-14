@@ -14,10 +14,9 @@
 #include <inttypes.h>
 
 
-
-//const float G = 6.6743e-11; 
-#define G 1.0f
-#define dt  0.1f
+#define G (6.6743e-11) 
+//#define G 1.0f
+#define dt  1.0f
 #define theta  1.0f
 #define epsilon 0.01f
 #define fos 20
@@ -50,7 +49,7 @@ typedef struct Particle
     float3 vel;
     float mass; 
 
-    uint32_t TAoS_index; 
+    uint32_t TAoS_index; // useless
 } Particle;
 
 typedef struct Node
@@ -537,6 +536,7 @@ float norm(float3 vec)
 {
     return std::sqrt(vec.x*vec.x + vec.y*vec.y + vec.z*vec.z);
 }
+
 void dfs_traverse(Node* TAoS, Particle* p)
 {
     ///printf("\n--------------------------------------------------------------\n");
@@ -544,10 +544,10 @@ void dfs_traverse(Node* TAoS, Particle* p)
 
     float3 accel(0.0f, 0.0f, 0.0f);
 
-
     // init stack with root
     std::stack<std::pair<Node*, float>> stack;
-    stack.push(std::pair<Node*, float>(TAoS, 2.0f*tree_boundary)); 
+    std::pair<Node*, float> start(TAoS, 2.0f*tree_boundary);
+    stack.push(start); 
 
     // traverse
     while(!stack.empty())
@@ -558,15 +558,13 @@ void dfs_traverse(Node* TAoS, Particle* p)
         Node* current = pair.first;
         float width = pair.second;
 
-
-        float3 r = current->com + p->pos * -1.0f; 
+        float3 r = current->com + (p->pos * -1.0f); 
         float r_norm = norm(r);
 
         ///printf("\t%i\tinternal: %i\t r_norm/width %6.2f\t total_mass %6.2f\t", current->tree_index, is_internal_node(current), r_norm / width, current->total_mass );
 
-        if(is_internal_node(current) && (r_norm  / width) < 1.0f ) 
+        if(is_internal_node(current) && (r_norm  / width) < 1.0f ) // 1.0f can be tuned
         {
-            ///printf("push children");
             // push valid children to stack
             Node* child;
             for(int i = 0; i < 8; i++)
@@ -578,26 +576,11 @@ void dfs_traverse(Node* TAoS, Particle* p)
         }
         else 
         {   
-            ///printf("FORCE "); 
-            ///printf((is_particle_node(current)) ? " (particle) " : " (internal) " );
-            
-    
             float3 a(0.0f, 0.0f, 0.0f);
             a = ((r / (r_norm + epsilon)) * (float) (G * current->total_mass)) / ((r_norm + epsilon ) * (r_norm + epsilon));
-            accel =  a + accel;
-            
-            ///printf("accel += (%10.8f, %10.8f, %10.8f) = (%10.8f, %10.8f, %10.8f)", a.x, a.y, a.z, accel.x, accel.y, accel.z );
+            accel =  a + accel;   
         }
-        ///printf("\n");
     }
-
-    ///printf("\npos: (%10.8f, %10.8f, %10.8f)\n", p->pos.x, p->pos.y, p->pos.z);
-    ///printf("vel: (%10.8f, %10.8f, %10.8f)\n", p->vel.x, p->vel.y, p->vel.z);
-
-    ///printf("\naccel: (%10.8f, %10.8f, %10.8f)\n", accel.x, accel.y, accel.z);
-
-
-    //accels[p-PAoS] = accel; // debugging
 
     p->vel = p->vel + accel * dt;
     p->pos = p->pos + p->vel*dt; 
@@ -613,9 +596,6 @@ void dfs_traverse(Node* TAoS, Particle* p)
         sys_boundary = std::abs(p->pos.z);
     
     tree_boundary = sys_boundary * boundary_fos; // only safe if we regenerate tree from scratch
-
-    ///printf("\npos: (%10.8f, %10.8f, %10.8f)\n", p->pos.x, p->pos.y, p->pos.z);
-    ///printf("vel: (%10.8f, %10.8f, %10.8f)\n", p->vel.x, p->vel.y, p->vel.z);    
     
 }
 void calculate_forces(Node* TAoS, Particle* PAoS, uint32_t n)
@@ -678,7 +658,7 @@ int main (int argc, char** argv)
 {
     uint8_t num_threads;
     uint32_t steps; 
-
+/*
     if(argc < 3) {
         printf("Usage:\t%s <num_particles> <num_iterations> <num_threads>\n or \n", argv[0]);
         return -1; 
@@ -690,7 +670,8 @@ int main (int argc, char** argv)
         N = 1000;
         num_threads = 1;
         */
-    }
+ //   }
+    
     /*else if(argc == 2) {
 
         printf("<num_particles> = %i\n", atoi(argv[1]));
@@ -699,48 +680,59 @@ int main (int argc, char** argv)
         N = atoi(argv[1]);
         num_threads = 1; 
     }*/
+/* 
     else
     {
         printf("<num_particles> = %i\n", atoi(argv[1]));
         printf("<num_iterations> = %i\n", atoi(argv[2]));
-        printf("<num_threads> = %i\n", atoi(argv[3]));
+        printf("<num_threads> = %i\n\n", atoi(argv[3]));
 
         N = atoi(argv[1]);
         steps = atoi(argv[2]);
         num_threads = atoi(argv[3]);
     }
+*/
+    N = 2; // when N is small, we run into issue with std::stack : free(): invalid pointer   Aborted (core dumped)
+    num_threads = 1;
+    steps = 100000;
 
     uint32_t *TMS, *TCS;
     TMS = &TAoS_max_size;
     TCS = &TAoS_current_size;
 
 
-    float3 sys_com = float3{0.0f, 0.0f, 0.0f};
-    float sys_mass = 0.0f;
+    //float3 sys_com = float3{0.0f, 0.0f, 0.0f};
+    //float sys_mass = 0.0f;
     float max_dim = 0.0f;
-
+ 
 
     PAoS = (Particle*) malloc(N * sizeof(Particle)); 
+    
+    //PAoS[0].pos=float3(0.0f, 0.0f, 0.0f);
+    PAoS[0].pos=float3(-1.f, -1.f, -1.f);
+    PAoS[0].vel = float3(0.0f, 0.0f, 0.0f);
+    PAoS[0].mass = (1.989e30); // sun at center
+        
 
-    //accels = (float3*) malloc(N * sizeof(float3)); // for xthreaded debugging
-
-
+    PAoS[1].pos=float3(1.5e9, 0.0f, 0.0f);   // r = 1.5*10^6 km
+    PAoS[1].vel=float3(0.0f, 2.978e4, 0.0f); // v = 29.78 km/s
+    PAoS[1].mass = 5.972e24;                 // m = 5.972*10^24 kg
+        
+    
     srand(time(NULL));
     uint32_t range = 1000; 
     for(int i = 0; i < N; i++)
     {
-        Particle* p = (Particle*) malloc(sizeof(Particle)) ;
-        p->pos=float3( rand() % (range) - range/2.0f, rand() % range - range/2.0f, rand() % range - range/2.0f);
-        //p->pos=float3(-500.0f+10.0f*i + rand()%10, -500.0f+10.0f*i +rand()%10, -500.0f+10.0f*i + rand()%10);
-        p->vel=float3(0,0,0);
-        p->mass = 1;
-
-        if(i == 0) // manually insert large body
+        Particle* p = &PAoS[i];
+        if(i > 1)
         {
-            p->pos=float3(10.0f, 10.0f, 10.0f);
-            p->vel = float3(0.0f, 0.0f, 0.0f);
-            p->mass = 10000.0f;
+            p->pos=float3( rand() % (range) - range/2.0f, rand() % range - range/2.0f, rand() % range - range/2.0f);
+            //p->pos=float3(-500.0f+10.0f*i + rand()%10, -500.0f+10.0f*i +rand()%10, -500.0f+10.0f*i + rand()%10);
+            p->vel=float3(0,0,0);
+            p->mass = 1;
         }
+
+
         
         if(std::abs(p->pos.x) > max_dim)
             max_dim = std::abs(p->pos.x);
@@ -751,28 +743,25 @@ int main (int argc, char** argv)
         if(std::abs(p->pos.z) > max_dim)
             max_dim = std::abs(p->pos.z);
 
-        sys_com = sys_com + ((p->pos) * p->mass );
-        sys_mass += p->mass;
+        //sys_com = sys_com + ((p->pos) * p->mass );
+        //sys_mass += p->mass;
 
-        //printf("p_pos %f %f %f\n", p->pos.x, p->pos.y, p->pos.z);
-        //printf("s_com %f %f %f\n", sys_com.x, sys_com.y, sys_com.z);
-
-        PAoS[i] = *p;
-        //printf(particleToString(*p).c_str() ,"\n");
     }
-    sys_com = sys_com * (1.0f/sys_mass);
-
+    //sys_com = sys_com * (1.0f/sys_mass);
     sys_boundary = max_dim;
-    //tree_boundary = max_dim * 1.25f; // 1/2 of the cubic width
     tree_boundary = max_dim * boundary_fos;
 
-
     TAoS_max_size = fos * N;
-    TAoS = (Node*) malloc (TAoS_max_size * sizeof(Node));
-    //TAoS_swap_buffer = (Node*) malloc (TAoS_max_size * sizeof(Node)); // we dont need this unless we are sorting
 
-    sort_array = (Index_Pair*) malloc(TAoS_max_size * sizeof(Index_Pair));
-    map = (uint32_t*) malloc(TAoS_max_size * sizeof(uint32_t));
+    if(TAoS_max_size < 1000)
+        TAoS_max_size = 1000; // necessary for small number of particles. ratio might get large
+    
+    TAoS = (Node*) malloc (TAoS_max_size * sizeof(Node));
+    
+    // we dont need this stuff unless we are sorting
+    //TAoS_swap_buffer = (Node*) malloc (TAoS_max_size * sizeof(Node)); 
+    //sort_array = (Index_Pair*) malloc(TAoS_max_size * sizeof(Index_Pair));
+    //map = (uint32_t*) malloc(TAoS_max_size * sizeof(uint32_t));
 
 
     uint64_t update_TAoS_time = 0;
@@ -782,13 +771,14 @@ int main (int argc, char** argv)
     uint64_t total = 0;
 
 
-
     auto t0 =  std::chrono::steady_clock::now();
     generate_TAoS(TAoS, PAoS);
     gen_TAoS_time = (std::chrono::steady_clock::now() - t0).count();
     
-    uint32_t max_TAoS_size_reached = 0;
+    uint32_t max_TAoS_size_reached = TAoS_current_size;
     
+    //uint32_t gap = 100/dt; // every 100 seconds
+    //float3* rSun2Earth = (float3*)malloc(steps / (gap/dt) * sizeof(float3) );
     for(int i = 0; i < steps; i++)
     {
         auto t1 = std::chrono::steady_clock::now();
@@ -797,8 +787,8 @@ int main (int argc, char** argv)
         auto t2 = std::chrono::steady_clock::now();
         //sort_TAoS(TAoS, TAoS_swap_buffer, sort_array, map, TAoS_current_size, TAoS_max_size); // this is optional for cpu version. It just slows us down unecessarily! 
         auto t3 = std::chrono::steady_clock::now();
-        //calculate_forces(TAoS, PAoS, N);
-        xthreaded_calculate_forces(num_threads, TAoS, PAoS, N);
+        calculate_forces(TAoS, PAoS, N);
+        //xthreaded_calculate_forces(num_threads, TAoS, PAoS, N);
         auto t4 = std::chrono::steady_clock::now();
 
 
@@ -808,6 +798,20 @@ int main (int argc, char** argv)
         update_TAoS_time += static_cast<uint64_t>((t2 - t1).count());
         sort_TAoS_time += static_cast<uint64_t>((t3 - t2).count());
         calculate_forces_time += static_cast<uint64_t>((t4 - t3).count());
+        
+
+        if(i % 1000 == 0)
+        {
+            float3 r(PAoS[1].pos.x - PAoS[0].pos.x, 
+                    PAoS[1].pos.y - PAoS[0].pos.y,
+                    PAoS[1].pos.z - PAoS[0].pos.z);
+
+            //printf("rSun2Earth @t=%is\t", i);
+
+            //printf("\t(%3.1f,\t%3.1f,\t%3.1f)\t", r.x/1e6, r.y/1e6, r.z/1e6);
+
+            //printf("D=%3.1f\n", sqrtf(r.x*r.x + r.y*r.y + r.z*r.z)/1e6);
+        }
     }
     
     update_TAoS_time /= steps;
@@ -827,13 +831,14 @@ int main (int argc, char** argv)
     printf("update_TAoS_time : %lf ms\n", update_TAoS_time/1E6);
     printf("sort_TAoS_time : %lf ms\n", sort_TAoS_time/1E6);
     printf("calculate_forces_time : %lf ms\n", calculate_forces_time/1E6);
-    printf("total iteration time : %lf ms\n", total/1E6);
+    printf("total iteration time : %lf ms\n\n", total/1E6);
 
-    delete[] TAoS;
-    delete[] TAoS_swap_buffer;
-    delete[] PAoS;
-    delete[] sort_array;
-    delete[] map;
+
+    free(TAoS);
+    free(TAoS_swap_buffer);
+    free(PAoS);
+    free(sort_array);
+    free(map);
 
     return 1;
 
@@ -911,11 +916,6 @@ PDF paper format:
 YYYY-where published-title
 */
 
-//TODO: deal with out of bounds
-
-
-
-// -O3, microway, check for correctness with pthread, test larger dataset, new design ideas
 
 /*
 Idea for handling out of bounds without regenerating tree (dynamic adjustment)
