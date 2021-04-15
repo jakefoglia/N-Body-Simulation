@@ -15,9 +15,8 @@
 
 
 #define G (6.6743e-11) 
-//#define G 1.0f
 #define dt  0.01f
-#define theta  1.5f
+#define theta  1.0f
 #define epsilon 0.1f
 #define fos 20 
 #define boundary_fos 1.25f
@@ -654,10 +653,18 @@ void xthreaded_calculate_forces(uint8_t num_threads, Node* TAoS, Particle* PAoS,
     return;
 }
 
+#define show_percentages 1
 int main (int argc, char** argv)
 {
     uint8_t num_threads;
     uint32_t steps; 
+
+    N = 1e3; 
+    num_threads = 8;
+    steps = 1e4; 
+
+
+
 /*
     if(argc < 3) {
         printf("Usage:\t%s <num_particles> <num_iterations> <num_threads>\n or \n", argv[0]);
@@ -692,9 +699,8 @@ int main (int argc, char** argv)
         num_threads = atoi(argv[3]);
     }
 */
-    N = 2; // when N is small, we run into issue with std::stack : free(): invalid pointer   Aborted (core dumped)
-    num_threads = 1;
-    steps = 1e7; //
+    printf("Simulating %i particles over ", N);
+    printf("%i timesteps of %4.2f s using %i threads...\n\n", steps, dt, num_threads);
 
     uint32_t *TMS, *TCS;
     TMS = &TAoS_max_size;
@@ -722,7 +728,7 @@ int main (int argc, char** argv)
     float v0 = (float) sqrt(G*m_sun / r0);
     PAoS[1].pos=float3(r0, 0.0f, 0.0f);   // r = 1.5*10^6 km
     PAoS[1].vel=float3(0.0f, v0, 0.0f); // v = 29.78 km/s              // Vorb = sqrt(G*Msun/R)
-    PAoS[1].mass = 1;                        // m = 1 kg
+    PAoS[1].mass = 10000;                        // m = 1 kg
 
 
     /* // EARTH
@@ -736,7 +742,7 @@ int main (int argc, char** argv)
     for(int i = 0; i < N; i++)
     {
         Particle* p = &PAoS[i];
-        if(i > 1)
+        if(i > 1) // skip the sun and manual particle
         {
             p->pos=float3( rand() % (range) - range/2.0f, rand() % range - range/2.0f, rand() % range - range/2.0f);
             //p->pos=float3(-500.0f+10.0f*i + rand()%10, -500.0f+10.0f*i +rand()%10, -500.0f+10.0f*i + rand()%10);
@@ -816,7 +822,12 @@ int main (int argc, char** argv)
         calculate_forces_time += static_cast<uint64_t>((t4 - t3).count());
         */
         
-#if 1
+#if show_percentages
+        if( i % (steps / 10) == 0) 
+            printf("\t%i%%\n", (int) (10.f * (i / (steps / 10) ))   );
+#endif
+
+#if 0
         if(i % 10000 == 0)
         {
             float3 r(PAoS[1].pos.x - PAoS[0].pos.x, 
@@ -837,6 +848,9 @@ int main (int argc, char** argv)
     auto t2 = std::chrono::steady_clock::now();
     total = static_cast<uint64_t>((t2 - t1).count());
 
+#if show_percentages
+    printf("\t100%%\n");
+#endif
 
     //update_TAoS_time /= steps;
     //sort_TAoS_time /= steps;
@@ -861,8 +875,10 @@ int main (int argc, char** argv)
     printf("calculate_forces_time : %lf ms\n", calculate_forces_time/1E6);
     */
 
-    printf("total time :\t\t%6.3lf s\n\n", total/1E9); 
     
+    printf("total time :\t\t%6.3lf s\n\n", total/1E9); 
+    printf("time per iteration :\t%6.3lf ms\n\n", total/1E6/steps);
+
 
     free(TAoS);
     free(TAoS_swap_buffer);
