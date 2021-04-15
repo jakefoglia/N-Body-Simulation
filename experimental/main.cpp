@@ -16,10 +16,10 @@
 
 #define G (6.6743e-11) 
 //#define G 1.0f
-#define dt  1.0f
-#define theta  1.0f
-#define epsilon 0.01f
-#define fos 20
+#define dt  0.01f
+#define theta  1.5f
+#define epsilon 0.1f
+#define fos 20 
 #define boundary_fos 1.25f
 
 typedef struct float3
@@ -563,7 +563,7 @@ void dfs_traverse(Node* TAoS, Particle* p)
 
         ///printf("\t%i\tinternal: %i\t r_norm/width %6.2f\t total_mass %6.2f\t", current->tree_index, is_internal_node(current), r_norm / width, current->total_mass );
 
-        if(is_internal_node(current) && (r_norm  / width) < 1.0f ) // 1.0f can be tuned
+        if(is_internal_node(current) && (r_norm  / width) < theta ) // theta can be tuned
         {
             // push valid children to stack
             Node* child;
@@ -694,7 +694,7 @@ int main (int argc, char** argv)
 */
     N = 2; // when N is small, we run into issue with std::stack : free(): invalid pointer   Aborted (core dumped)
     num_threads = 1;
-    steps = 100000;
+    steps = 1e7; //
 
     uint32_t *TMS, *TCS;
     TMS = &TAoS_max_size;
@@ -708,16 +708,28 @@ int main (int argc, char** argv)
 
     PAoS = (Particle*) malloc(N * sizeof(Particle)); 
     
+
+    // SUN
     //PAoS[0].pos=float3(0.0f, 0.0f, 0.0f);
-    PAoS[0].pos=float3(-1.f, -1.f, -1.f);
+    float m_sun = 1.989e30;
+    PAoS[0].pos=float3(-1.f, -1.f, -1.f); // slightly off center
     PAoS[0].vel = float3(0.0f, 0.0f, 0.0f);
-    PAoS[0].mass = (1.989e30); // sun at center
+    PAoS[0].mass = (m_sun); 
         
 
+    // Small particle in orbit
+    float r0 = 1.5e9;
+    float v0 = (float) sqrt(G*m_sun / r0);
+    PAoS[1].pos=float3(r0, 0.0f, 0.0f);   // r = 1.5*10^6 km
+    PAoS[1].vel=float3(0.0f, v0, 0.0f); // v = 29.78 km/s              // Vorb = sqrt(G*Msun/R)
+    PAoS[1].mass = 1;                        // m = 1 kg
+
+
+    /* // EARTH
     PAoS[1].pos=float3(1.5e9, 0.0f, 0.0f);   // r = 1.5*10^6 km
     PAoS[1].vel=float3(0.0f, 2.978e4, 0.0f); // v = 29.78 km/s
     PAoS[1].mass = 5.972e24;                 // m = 5.972*10^24 kg
-        
+      */  
     
     srand(time(NULL));
     uint32_t range = 1000; 
@@ -763,76 +775,94 @@ int main (int argc, char** argv)
     //sort_array = (Index_Pair*) malloc(TAoS_max_size * sizeof(Index_Pair));
     //map = (uint32_t*) malloc(TAoS_max_size * sizeof(uint32_t));
 
-
+    /*
     uint64_t update_TAoS_time = 0;
     uint64_t sort_TAoS_time = 0;
     uint64_t calculate_forces_time = 0;
     uint64_t gen_TAoS_time = 0;
+    */
     uint64_t total = 0;
 
 
     auto t0 =  std::chrono::steady_clock::now();
     generate_TAoS(TAoS, PAoS);
-    gen_TAoS_time = (std::chrono::steady_clock::now() - t0).count();
+
+    //gen_TAoS_time = (std::chrono::steady_clock::now() - t0).count();
+    //uint32_t max_TAoS_size_reached = TAoS_current_size;
     
-    uint32_t max_TAoS_size_reached = TAoS_current_size;
-    
+
+
     //uint32_t gap = 100/dt; // every 100 seconds
     //float3* rSun2Earth = (float3*)malloc(steps / (gap/dt) * sizeof(float3) );
+    auto t1 = std::chrono::steady_clock::now();
     for(int i = 0; i < steps; i++)
     {
-        auto t1 = std::chrono::steady_clock::now();
+        //auto t1 = std::chrono::steady_clock::now();
         generate_TAoS(TAoS, PAoS);
         //update_TAoS(TAoS, PAoS);
-        auto t2 = std::chrono::steady_clock::now();
+        //auto t2 = std::chrono::steady_clock::now();
         //sort_TAoS(TAoS, TAoS_swap_buffer, sort_array, map, TAoS_current_size, TAoS_max_size); // this is optional for cpu version. It just slows us down unecessarily! 
-        auto t3 = std::chrono::steady_clock::now();
-        calculate_forces(TAoS, PAoS, N);
-        //xthreaded_calculate_forces(num_threads, TAoS, PAoS, N);
-        auto t4 = std::chrono::steady_clock::now();
+        //auto t3 = std::chrono::steady_clock::now();
+        //calculate_forces(TAoS, PAoS, N);
+        xthreaded_calculate_forces(num_threads, TAoS, PAoS, N);
+        //auto t4 = std::chrono::steady_clock::now();
 
-
+        /*
         if(TAoS_current_size > max_TAoS_size_reached)	
             max_TAoS_size_reached = TAoS_current_size;	
 
         update_TAoS_time += static_cast<uint64_t>((t2 - t1).count());
         sort_TAoS_time += static_cast<uint64_t>((t3 - t2).count());
         calculate_forces_time += static_cast<uint64_t>((t4 - t3).count());
+        */
         
-
-        if(i % 1000 == 0)
+#if 1
+        if(i % 10000 == 0)
         {
             float3 r(PAoS[1].pos.x - PAoS[0].pos.x, 
                     PAoS[1].pos.y - PAoS[0].pos.y,
                     PAoS[1].pos.z - PAoS[0].pos.z);
 
-            //printf("rSun2Earth @t=%is\t", i);
+            
 
             //printf("\t(%3.1f,\t%3.1f,\t%3.1f)\t", r.x/1e6, r.y/1e6, r.z/1e6);
+            printf("(%i,\t%i,\t%i)\t", (int) (r.x/1e6), (int)(r.y/1e6), (int)(r.z/1e6));
 
-            //printf("D=%3.1f\n", sqrtf(r.x*r.x + r.y*r.y + r.z*r.z)/1e6);
+            printf("D=%i\t\t", (int) (sqrtf(r.x*r.x + r.y*r.y + r.z*r.z)/1e6));
+
+            printf("@t=%is\n", (int)(i*dt));
         }
+#endif
     }
+    auto t2 = std::chrono::steady_clock::now();
+    total = static_cast<uint64_t>((t2 - t1).count());
+
+
+    //update_TAoS_time /= steps;
+    //sort_TAoS_time /= steps;
+    //calculate_forces_time /= steps;
     
-    update_TAoS_time /= steps;
-    sort_TAoS_time /= steps;
-    calculate_forces_time /= steps;
-    
-    total = update_TAoS_time + sort_TAoS_time + calculate_forces_time;
+    //total = update_TAoS_time + sort_TAoS_time + calculate_forces_time;
 
 
-    printf("\n\n\n");
-    printf("PAoS size :      %i\n", N);
-    printf("max TAoS size :  %i\n", max_TAoS_size_reached);
-    printf("ratio     :  %4.2f\n", ((max_TAoS_size_reached * 1.0f) / N));
+    printf("\n\n");
+    printf("PAoS size :\t\t%i\n", N);
+    printf("final TAoS size :\t%i\n", TAoS_current_size);
+    printf("ratio :\t\t\t%4.2f\n\n", ((TAoS_current_size * 1.0f) / N));
 
+    //printf("max TAoS size :  %i\n", max_TAoS_size_reached);
+    //printf("ratio     :  %4.2f\n", ((max_TAoS_size_reached * 1.0f) / N));
+
+    /*
     printf("\nAvg Times:\n");
     printf("generate_TAoS_time : %lf ms\n", gen_TAoS_time/1E6);
     printf("update_TAoS_time : %lf ms\n", update_TAoS_time/1E6);
     printf("sort_TAoS_time : %lf ms\n", sort_TAoS_time/1E6);
     printf("calculate_forces_time : %lf ms\n", calculate_forces_time/1E6);
-    printf("total iteration time : %lf ms\n\n", total/1E6);
+    */
 
+    printf("total time :\t\t%6.3lf s\n\n", total/1E9); 
+    
 
     free(TAoS);
     free(TAoS_swap_buffer);
