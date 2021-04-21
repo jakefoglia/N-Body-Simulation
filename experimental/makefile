@@ -17,11 +17,14 @@ ifeq ($(platform), linux) # Linux parameters
 
 #	INC = $(INCLUDES) $(LIBINCLUDES)  
 
+	BUILD = sim
+
 
 else					# Windows Parameters
 	CC = g++
 	CC_FLAGS = -O3 -Dgtest_disable_pthreads=ON
 
+	BUILD = sim.exe
 
 endif
 
@@ -32,13 +35,12 @@ endif
 OBJS = main.o
 
 main.o: main.cpp 
-	$(CC) $(CC_FLAGS) -c main.cpp
-	mv main.o objs/main.o
-	
-
-exe: clean # $(OBJS)
-#	$(CC) $(CC_FLAGS) -o main.exe  objs/*.o
-	$(CC) $(CC_FLAGS) -o a.exe main.cpp
+	$(CC) $(CC_FLAGS) -c $^
+	mv $@ objs/$@
 
 clean: 
-	rm -f $(OBJ_DIR)/*.o
+	rm -f $(OBJ_DIR)/*.o	
+
+sim: clean $(OBJS)
+	$(CC) $(CC_FLAGS) -o $(BUILD) objs/$(OBJS)
+

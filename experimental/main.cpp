@@ -15,7 +15,7 @@
 
 
 #define G (6.6743e-11) 
-#define dt  0.01f
+#define dt  0.1f
 #define theta  1.0f
 #define epsilon 0.1f
 #define fos 20 
@@ -419,7 +419,7 @@ void insert_particle_in_tree(Node* TAoS, uint32_t PAoS_index) // a node should h
             current_node = &TAoS[current_node->first_child_TAoS_index + sub_index]; 
         }
     }
-    if(oob) {
+    if(oob) { // safety check
         printf("PAoS[%i] was out of bounds and reached depth %i\n", PAoS_index, depth);
     }
 
@@ -664,43 +664,25 @@ int main (int argc, char** argv)
     steps = 1e4; 
 
 
-
-/*
-    if(argc < 3) {
-        printf("Usage:\t%s <num_particles> <num_iterations> <num_threads>\n or \n", argv[0]);
+    if(argc < 4) {
+        printf("\nUsage:\t%s <num_particles> <num_steps> <num_threads>\n", argv[0]);
         return -1; 
-
-        /*
-        printf("or \t%s <num_particles>\n", argv[0]);
-        printf("Applying Default: <num_particles> = 1000  <num_threads> = 1 \n");
-        
-        N = 1000;
-        num_threads = 1;
-        */
- //   }
-    
-    /*else if(argc == 2) {
-
-        printf("<num_particles> = %i\n", atoi(argv[1]));
-        printf("Applying Default <num_threads> = 1 \n");
-        
-        N = atoi(argv[1]);
-        num_threads = 1; 
-    }*/
-/* 
-    else
-    {
-        printf("<num_particles> = %i\n", atoi(argv[1]));
-        printf("<num_iterations> = %i\n", atoi(argv[2]));
-        printf("<num_threads> = %i\n\n", atoi(argv[3]));
-
-        N = atoi(argv[1]);
-        steps = atoi(argv[2]);
-        num_threads = atoi(argv[3]);
     }
-*/
-    printf("Simulating %i particles over ", N);
-    printf("%i timesteps of %4.2f s using %i threads...\n\n", steps, dt, num_threads);
+    else {
+        try {
+            N = atoi(argv[1]);
+            steps = atoi(argv[2]);
+            num_threads = atoi(argv[3]);
+        }
+        catch(const char* msg)
+        {
+            printf("%s\n", msg);
+            return -1;
+        }
+    }
+
+    printf("\nSimulating %i particles over ", N);
+    printf("%i timesteps of %4.2f s using %i threads...\n", steps, dt, num_threads);
 
     uint32_t *TMS, *TCS;
     TMS = &TAoS_max_size;
@@ -710,11 +692,10 @@ int main (int argc, char** argv)
     //float3 sys_com = float3{0.0f, 0.0f, 0.0f};
     //float sys_mass = 0.0f;
     float max_dim = 0.0f;
- 
 
     PAoS = (Particle*) malloc(N * sizeof(Particle)); 
     
-
+    /*
     // SUN
     //PAoS[0].pos=float3(0.0f, 0.0f, 0.0f);
     float m_sun = 1.989e30;
@@ -730,19 +711,22 @@ int main (int argc, char** argv)
     PAoS[1].vel=float3(0.0f, v0, 0.0f); // v = 29.78 km/s              // Vorb = sqrt(G*Msun/R)
     PAoS[1].mass = 10000;                        // m = 1 kg
 
-
+    */
     /* // EARTH
     PAoS[1].pos=float3(1.5e9, 0.0f, 0.0f);   // r = 1.5*10^6 km
     PAoS[1].vel=float3(0.0f, 2.978e4, 0.0f); // v = 29.78 km/s
     PAoS[1].mass = 5.972e24;                 // m = 5.972*10^24 kg
       */  
+
+    
     
     srand(time(NULL));
     uint32_t range = 1000; 
     for(int i = 0; i < N; i++)
     {
         Particle* p = &PAoS[i];
-        if(i > 1) // skip the sun and manual particle
+        
+        if(i >= 0) // here to optionally skip manually inserted particles
         {
             p->pos=float3( rand() % (range) - range/2.0f, rand() % range - range/2.0f, rand() % range - range/2.0f);
             //p->pos=float3(-500.0f+10.0f*i + rand()%10, -500.0f+10.0f*i +rand()%10, -500.0f+10.0f*i + rand()%10);
@@ -763,8 +747,8 @@ int main (int argc, char** argv)
 
         //sys_com = sys_com + ((p->pos) * p->mass );
         //sys_mass += p->mass;
-
     }
+
     //sys_com = sys_com * (1.0f/sys_mass);
     sys_boundary = max_dim;
     tree_boundary = max_dim * boundary_fos;
@@ -899,68 +883,8 @@ int main (int argc, char** argv)
 */
 }
 
-/*
-Last Error:
-
-Jake@JakeASUS MINGW64 /d/Git/N-Body-Simulation/experimental (master)
-$ ./a.exe
-PAoS size :  50
-TAoS size :  273
-ratio     :  5.46
-
-Jake@JakeASUS MINGW64 /d/Git/N-Body-Simulation/experimental (master)
-$ ./a.exe
-error in insert_particle_on_blank : node isn't blank!!!
-uhh ohh in insert_node()
-
-Segmentation fault
 
 
-PLAN FOR SORTING TAoS
-
-Generate a new AoS. Each struct holds this info from a node on the TAoS:
-
-Sorting Struct: 
-{
-    tree_index  (for sorting)
-    TAoS_index 
-}
-
-We radix sort based on tree index. 
-
-This gives us a map 
-    from    TAoS_index_new    (location in sorted array)
-    to      TAoS_index_old    (TAoS_index entry in the struct)
-
-We want the inverse of this map.
-So we create a new array for the inverse map
-
-the location in the array will represent the TAoS_index_old
-the values will hold the TAoS_index_new
-
-So for each entry in the sorted array, we read the TAoS_index (the old index locations)
-and we use this index to go to that location in the new map.
-
-Then at that location, we write the index in the sorted array of where we found it.
-
-This will give us our desried map
-    from    TAoS_index_old    (location in map)
-    to      TAoS_index_new    (value at that location)
-
-
-Using this map we can easily sort our TAoS efficiently.
-Then after sorting, we go to each node and update their:
-    TAoS_parent_index
- &  TAoS_first_child_index 
- 
- based on the map   
-
-*/
-
-/*
-PDF paper format:
-YYYY-where published-title
-*/
 
 
 /*
@@ -983,40 +907,44 @@ double_and_sort
 half_and_sort
 
 maybe modify the sort method to do this?? will that work? i dont think so. we need two separate phases.  
+*/
 
 
+/*
+profiling 
+new solutions - toy example (similar to paper on slack)
 
 
-{
-    // Use IntelliSense to learn about possible attributes.
-    // Hover to view descriptions of existing attributes.
-    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
-    "version": "2.0.0",
-    "configurations": [
+bottleneck:
+    as we introduce many threads, single threaded tree generation becomes a significant bottleneck
+
+solution: 
+    multithreaded tree generation 
+
+        somewhat tricky bc traversal writes to nodes on the way down
+            this would require atomic ops or mutex locking 
+
+
+        we could make threads traversal in read only until they reach their position in the tree
         
-        {
-            "name": "(gdb) Launch",
-            "type": "cppdbg",
-            "request": "launch",
-            "preLaunchTask": "C/C++: g++.exe build active file",
-            "program": "${fileDirname}/${fileBasenameNoExtension}.exe",
-            "args": [],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}",
-            "environment": [],
-            "externalConsole": false,
-            "MIMode": "gdb",
-            "miDebuggerPath": "D:\\mingw-w64\\x86_64-8.1.0-posix-seh-rt_v6-rev0\\mingw64\\bin\\gdb.exe",
-            "setupCommands": [
-                {
-                    "description": "Enable pretty-printing for gdb",
-                    "text": "-enable-pretty-printing",
-                    "ignoreFailures": true
-                }
-            ]
-        },
+        after building the tree, we then go back and add mass contributions.
 
-    ]
-}
+        if we have 8 threads, this is simple. For each of the roots 8 subchildren, 
+        one thread is responsible for that subtree. 
 
+        Similarly simple to divide work for any # of threads thats a power of 2. 
+        
+        But they need to know which particles touched which nodes. when the threads traversed in read only mode, they needed to build a shared contributions list. 
+
+
+    
+
+
+*/
+
+
+
+/*
+PDF paper format:
+YYYY-where published-title
 */
